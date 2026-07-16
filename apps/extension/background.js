@@ -79,17 +79,28 @@ async function readWithRetries(tabs) {
 
 function parseVisibleMetrics() {
   const text = document.body.innerText;
-  const moneyAfter = (label) => { const match = text.match(new RegExp(`${label}[\\s\\S]{0,160}?(\\$[0-9,.]+)`, "i")); return match ? match[1] : null; };
+  const currencyToken = /(?:-\s*\$\s*|\$\s*-?\s*)[0-9,.]+|\(\s*\$\s*[0-9,.]+\s*\)/g;
+  const moneyAfter = (label) => {
+    const match = text.match(new RegExp(`${label}[\\s\\S]{0,160}?((?:-\\s*\\$\\s*|\\$\\s*-?\\s*)[0-9,.]+|\\(\\s*\\$\\s*[0-9,.]+\\s*\\))`, "i"));
+    return match ? match[1] : null;
+  };
   const moneyBefore = (label) => {
     const index = text.toLowerCase().lastIndexOf(label.toLowerCase());
     if (index < 0) return null;
-    const candidates = [...text.slice(Math.max(0, index - 120), index).matchAll(/\$[0-9,.]+/g)];
+    const candidates = [...text.slice(Math.max(0, index - 120), index).matchAll(currencyToken)];
     return candidates.at(-1)?.[0] ?? null;
   };
   const percentAfter = (label) => { const match = text.match(new RegExp(`${label}[\\s\\S]{0,180}?(\\d+)%\\s*(?:remaining|used)`, "i")); return match ? Number(match[1]) : null; };
-  const money = (value) => Number(value.replace(/[$,]/g, ""));
+  const money = (value) => {
+    const normalized = value.replace(/[\s$,()]/g, "");
+    return Number(value.includes("(") ? `-${normalized}` : normalized);
+  };
+  const moneyDisplay = (value) => {
+    const amount = money(value);
+    return `${amount < 0 ? "-" : ""}$${Math.abs(amount).toFixed(2)}`;
+  };
   const out = [];
-  const addCredit = (key, provider, label, value) => value && out.push({ key, provider, label, kind: "credit", value: money(value) * 100, display: value });
+  const addCredit = (key, provider, label, value) => value && out.push({ key, provider, label, kind: "credit", value: money(value) * 100, display: moneyDisplay(value) });
   const addQuota = (key, provider, label, remaining, resetText) => Number.isFinite(remaining) && out.push({ key, provider, label, kind: "quota", value: remaining, display: `${remaining}%`, resetText });
   if (location.hostname === "app.kilo.ai") addCredit("kilo-credit", "Kilo Balance", "Remaining credits", moneyAfter("Remaining Credits"));
   if (location.hostname === "platform.openai.com") addCredit("openai-api-credit", "OpenAI API Balance", "Prepaid API credit", moneyAfter("Credit balance"));
