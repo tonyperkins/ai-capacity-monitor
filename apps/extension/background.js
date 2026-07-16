@@ -16,7 +16,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
 chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name !== "collect" && alarm.name !== "collect-retry") return;
   const { autoCollectionEnabled = true } = await chrome.storage.local.get("autoCollectionEnabled");
-  if (autoCollectionEnabled) collect();
+  if (autoCollectionEnabled) collect(alarm.name === "collect-retry" ? REQUIRED_TABS.filter((target) => target.key === "kilo-credit") : REQUIRED_TABS);
 });
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type === "focus-provider") {
