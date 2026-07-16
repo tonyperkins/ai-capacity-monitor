@@ -19,11 +19,28 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (autoCollectionEnabled) collect();
 });
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message?.type === "focus-provider") {
+    focusProvider(message.key).then((result) => sendResponse(result)).catch((error) => sendResponse({ ok: false, error: String(error) }));
+    return true;
+  }
   const targets = message?.type === "collect" ? REQUIRED_TABS : message?.type === "collect-provider" ? REQUIRED_TABS.filter((target) => target.key === message.key) : [];
   if (!targets.length) return;
   collect(targets).then((result) => sendResponse(result)).catch((error) => sendResponse({ ok: false, error: String(error) }));
   return true;
 });
+
+async function focusProvider(key) {
+  const target = REQUIRED_TABS.find((candidate) => candidate.key === key || candidate.keys?.includes(key));
+  if (!target) return { ok: false, error: "No provider page is configured for this item." };
+  const candidates = (await chrome.tabs.query({})).filter((tab) => tab.url?.includes(target.match));
+  if (candidates.length) {
+    const tab = candidates.sort((a, b) => (b.lastAccessed ?? 0) - (a.lastAccessed ?? 0))[0];
+    await chrome.tabs.update(tab.id, { active: true });
+    return { ok: true, opened: false };
+  }
+  await chrome.tabs.create({ url: target.url, active: true });
+  return { ok: true, opened: true };
+}
 
 async function initializeSchedule() {
   const config = await chrome.storage.local.get(["autoCollectionEnabled", "collectionIntervalMinutes"]);
