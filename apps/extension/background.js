@@ -8,7 +8,7 @@ const REQUIRED_TABS = [
 ];
 
 chrome.runtime.onInstalled.addListener(() => chrome.alarms.create("collect", { periodInMinutes: 2 }));
-chrome.alarms.onAlarm.addListener((alarm) => { if (alarm.name === "collect") collect(); });
+chrome.alarms.onAlarm.addListener((alarm) => { if (alarm.name === "collect" || alarm.name === "collect-retry") collect(); });
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type !== "collect") return;
   collect().then((result) => sendResponse(result)).catch((error) => sendResponse({ ok: false, error: String(error) }));
@@ -17,7 +17,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
 async function collect() {
   const { tabs, opened } = await ensureDashboardTabs();
-  await refreshTabs(tabs);
+  await refreshTabs(tabs, opened);
   await waitForTabsReady(tabs);
   const metrics = await readWithRetries(tabs);
   const previous = await chrome.storage.local.get("latestMetrics");
@@ -25,7 +25,8 @@ async function collect() {
   const issues = [];
   const verifiedMetrics = metrics.filter((metric) => {
     if (metric.key === "kilo-credit" && metric.value === 0 && priorByKey[metric.key]?.value > 0) {
-      issues.push("Kilo returned $0.00 unexpectedly. Kept the prior verified balance; retry collection after the Kilo page finishes loading.");
+      issues.push("Kilo returned $0.00 unexpectedly. Kept the prior verified balance and will retry automatically in 30 seconds.");
+      chrome.alarms.create("collect-retry", { when: Date.now() + 30000 });
       return false;
     }
     return true;
@@ -63,8 +64,8 @@ async function ensureDashboardTabs() {
   return { tabs, opened };
 }
 
-async function refreshTabs(tabs) {
-  await Promise.all(tabs.map(async (tab) => {
+async function refreshTabs(tabs, openedTabIds) {
+  await Promise.all(tabs.filter((tab) => !openedTabIds.includes(tab.id)).map(async (tab) => {
     try { await chrome.tabs.reload(tab.id); } catch { /* A closed or unavailable tab will be retried on the next pass. */ }
   }));
 }

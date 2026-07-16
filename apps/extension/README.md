@@ -2,7 +2,7 @@
 
 The extension is independently useful: it collects provider readings, keeps the last verified snapshot in `chrome.storage.local`, and presents it in the toolbar popup.
 
-Each collection refreshes the provider pages before reading the displayed values. The popup also includes an optional **Close provider tabs opened by Capacity Monitor after collection** setting. It affects only tabs the extension created; tabs you already had open are never closed.
+Each collection refreshes provider pages that were already open before reading the displayed values; newly created tabs are allowed to load normally without an unnecessary second navigation. If Kilo temporarily reports a suspicious zero balance, the extension preserves the prior verified balance and retries automatically after 30 seconds. The popup also includes an optional **Close provider tabs opened by Capacity Monitor after collection** setting. It affects only tabs the extension created; tabs you already had open are never closed.
 
 ## Publisher configuration
 
