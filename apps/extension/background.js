@@ -17,6 +17,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
 async function collect() {
   const { tabs, opened } = await ensureDashboardTabs();
+  await refreshTabs(tabs);
   const metrics = await readWithRetries(tabs);
   const previous = await chrome.storage.local.get("latestMetrics");
   const priorByKey = Object.fromEntries((previous.latestMetrics ?? []).map((metric) => [metric.key, metric]));
@@ -39,23 +40,36 @@ async function collect() {
   const result = await response.json().catch(() => ({}));
   if (!response.ok) return { ok: false, error: "Dashboard delivery failed." };
   await chrome.storage.local.set({ latestMetrics, lastCollectedAt: collectedAt, lastIssues: issues });
+  const { closeOpenedTabs = false } = await chrome.storage.local.get("closeOpenedTabs");
+  if (closeOpenedTabs && opened.length) await closeTabs(opened);
   return { ok: true, accepted: result.accepted, collectedAt, opened, issues };
 }
 
 async function ensureDashboardTabs() {
   const openTabs = await chrome.tabs.query({});
   const tabs = [];
-  let opened = 0;
+  const opened = [];
   for (const target of REQUIRED_TABS) {
     const candidates = openTabs.filter((tab) => tab.url?.includes(target.match));
     if (candidates.length) {
       tabs.push(candidates.sort((a, b) => (b.lastAccessed ?? 0) - (a.lastAccessed ?? 0))[0]);
     } else {
-      tabs.push(await chrome.tabs.create({ url: target.url, active: false, pinned: true }));
-      opened += 1;
+      const tab = await chrome.tabs.create({ url: target.url, active: false, pinned: true });
+      tabs.push(tab);
+      opened.push(tab.id);
     }
   }
   return { tabs, opened };
+}
+
+async function refreshTabs(tabs) {
+  await Promise.all(tabs.map(async (tab) => {
+    try { await chrome.tabs.reload(tab.id); } catch { /* A closed or unavailable tab will be retried on the next pass. */ }
+  }));
+}
+
+async function closeTabs(tabIds) {
+  try { await chrome.tabs.remove(tabIds); } catch { /* Tabs may have been closed manually. */ }
 }
 
 async function readWithRetries(tabs) {
