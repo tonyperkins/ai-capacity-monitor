@@ -1,45 +1,74 @@
 const ENDPOINT = "http://127.0.0.1:8787/collect";
 const REQUIRED_TABS = [
-  { url: "https://app.kilo.ai/profile", match: "app.kilo.ai/profile" },
-  { url: "https://platform.openai.com/home", match: "platform.openai.com/home" },
-  { url: "https://platform.claude.com/dashboard", match: "platform.claude.com/dashboard" },
-  { url: "https://chatgpt.com/#settings/Usage", match: "#settings/Usage" },
-  { url: "https://claude.ai/new#settings/usage", match: "claude.ai/new#settings/usage" },
+  { key: "kilo-credit", url: "https://app.kilo.ai/profile", match: "app.kilo.ai/profile" },
+  { key: "openai-api-credit", url: "https://platform.openai.com/home", match: "platform.openai.com/home" },
+  { key: "claude-api-credit", url: "https://platform.claude.com/dashboard", match: "platform.claude.com/dashboard" },
+  { key: "chatgpt-weekly", url: "https://chatgpt.com/#settings/Usage", match: "#settings/Usage" },
+  { key: "claude-usage-credit", url: "https://claude.ai/new#settings/usage", match: "claude.ai/new#settings/usage" },
 ];
 let activeCollection = null;
 
-chrome.runtime.onInstalled.addListener(() => chrome.alarms.create("collect", { periodInMinutes: 2 }));
-chrome.alarms.onAlarm.addListener((alarm) => { if (alarm.name === "collect" || alarm.name === "collect-retry") collect(); });
+chrome.runtime.onInstalled.addListener(initializeSchedule);
+chrome.runtime.onStartup.addListener(syncSchedule);
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === "local" && (changes.autoCollectionEnabled || changes.collectionIntervalMinutes)) syncSchedule();
+});
+chrome.alarms.onAlarm.addListener(async (alarm) => {
+  if (alarm.name !== "collect" && alarm.name !== "collect-retry") return;
+  const { autoCollectionEnabled = true } = await chrome.storage.local.get("autoCollectionEnabled");
+  if (autoCollectionEnabled) collect();
+});
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-  if (message?.type !== "collect") return;
-  collect().then((result) => sendResponse(result)).catch((error) => sendResponse({ ok: false, error: String(error) }));
+  const targets = message?.type === "collect" ? REQUIRED_TABS : message?.type === "collect-provider" ? REQUIRED_TABS.filter((target) => target.key === message.key) : [];
+  if (!targets.length) return;
+  collect(targets).then((result) => sendResponse(result)).catch((error) => sendResponse({ ok: false, error: String(error) }));
   return true;
 });
 
-function collect() {
+async function initializeSchedule() {
+  const config = await chrome.storage.local.get(["autoCollectionEnabled", "collectionIntervalMinutes"]);
+  await chrome.storage.local.set({
+    ...(config.autoCollectionEnabled === undefined ? { autoCollectionEnabled: true } : {}),
+    ...(config.collectionIntervalMinutes === undefined ? { collectionIntervalMinutes: 2 } : {}),
+  });
+  await syncSchedule();
+}
+
+async function syncSchedule() {
+  const { autoCollectionEnabled = true, collectionIntervalMinutes = 2 } = await chrome.storage.local.get(["autoCollectionEnabled", "collectionIntervalMinutes"]);
+  const interval = Math.max(1, Math.min(1440, Number(collectionIntervalMinutes) || 2));
+  await chrome.alarms.clear("collect");
+  if (autoCollectionEnabled) chrome.alarms.create("collect", { periodInMinutes: interval });
+  if (!autoCollectionEnabled) await chrome.alarms.clear("collect-retry");
+}
+
+function collect(targets = REQUIRED_TABS) {
   if (activeCollection) return activeCollection;
-  activeCollection = runCollection().finally(() => { activeCollection = null; });
+  activeCollection = runCollection(targets).finally(() => { activeCollection = null; });
   return activeCollection;
 }
 
-async function runCollection() {
-  const { tabs, opened } = await ensureDashboardTabs();
+async function runCollection(targets) {
+  const { tabs, opened } = await ensureDashboardTabs(targets);
   await refreshTabs(tabs, opened);
   await waitForTabsReady(tabs);
-  const metrics = await readWithRetries(tabs);
+  const parsedMetrics = await readWithRetries(tabs, targets.map((target) => target.key));
+  const targetKeys = new Set(targets.map((target) => target.key));
+  const metrics = parsedMetrics.filter((metric) => targetKeys.has(metric.key));
   const previous = await chrome.storage.local.get("latestMetrics");
   const priorByKey = Object.fromEntries((previous.latestMetrics ?? []).map((metric) => [metric.key, metric]));
   const issues = [];
+  const { autoCollectionEnabled = true } = await chrome.storage.local.get("autoCollectionEnabled");
   const verifiedMetrics = metrics.filter((metric) => {
     if (metric.key === "kilo-credit" && metric.value === 0 && priorByKey[metric.key]?.value > 0) {
-      issues.push("Kilo returned $0.00 unexpectedly. Kept the prior verified balance and will retry automatically in 30 seconds.");
-      chrome.alarms.create("collect-retry", { when: Date.now() + 30000 });
+      issues.push(autoCollectionEnabled ? "Kilo returned $0.00 unexpectedly. Kept the prior verified balance and will retry automatically in 30 seconds." : "Kilo returned $0.00 unexpectedly. Kept the prior verified balance; automatic updates are paused.");
+      if (autoCollectionEnabled) chrome.alarms.create("collect-retry", { when: Date.now() + 30000 });
       return false;
     }
     return true;
   });
   const latestMetrics = Object.values(Object.fromEntries([...(previous.latestMetrics ?? []), ...verifiedMetrics].map((metric) => [metric.key, metric])));
-  if (!metrics.length) return { ok: false, error: opened ? "Provider pages are still loading; retry in a moment." : "No readable provider values found yet." };
+  if (!metrics.length) return { ok: false, error: opened.length ? "Provider pages are still loading; retry in a moment." : "No readable provider values found yet." };
   if (!verifiedMetrics.length) {
     await chrome.storage.local.set({ latestMetrics, lastIssues: issues });
     return { ok: false, error: "No verified values were collected; retry shortly.", issues };
@@ -54,11 +83,11 @@ async function runCollection() {
   return { ok: true, accepted: result.accepted, collectedAt, opened, issues };
 }
 
-async function ensureDashboardTabs() {
+async function ensureDashboardTabs(targets = REQUIRED_TABS) {
   const openTabs = await chrome.tabs.query({});
   const tabs = [];
   const opened = [];
-  for (const target of REQUIRED_TABS) {
+  for (const target of targets) {
     const candidates = openTabs.filter((tab) => tab.url?.includes(target.match));
     if (candidates.length) {
       tabs.push(candidates.sort((a, b) => (b.lastAccessed ?? 0) - (a.lastAccessed ?? 0))[0]);
@@ -92,7 +121,7 @@ async function closeTabs(tabIds) {
   try { await chrome.tabs.remove(tabIds); } catch { /* Tabs may have been closed manually. */ }
 }
 
-async function readWithRetries(tabs) {
+async function readWithRetries(tabs, requiredKeys) {
   const maxAttempts = 10;
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     const results = await Promise.all(tabs.map(async (tab) => {
@@ -104,7 +133,7 @@ async function readWithRetries(tabs) {
       } catch { return []; }
     }));
     const metrics = results.flat();
-    const essentials = ["kilo-credit", "openai-api-credit", "claude-api-credit", "claude-usage-credit", "chatgpt-weekly"];
+    const essentials = requiredKeys;
     const kiloIsZero = metrics.some((metric) => metric.key === "kilo-credit" && metric.value === 0);
     if ((essentials.every((key) => metrics.some((metric) => metric.key === key)) && !kiloIsZero) || attempt === maxAttempts - 1) return metrics;
     await new Promise((resolve) => setTimeout(resolve, 1500));

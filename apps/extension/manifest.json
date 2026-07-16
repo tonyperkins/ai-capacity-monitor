@@ -6,5 +6,6 @@
   "permissions": ["alarms", "scripting", "storage", "tabs"],
   "host_permissions": ["https://app.kilo.ai/*", "https://platform.openai.com/*", "https://platform.claude.com/*", "https://chatgpt.com/*", "https://claude.ai/*", "http://127.0.0.1:8787/*"],
   "background": { "service_worker": "background.js" },
-  "action": { "default_title": "Capacity Monitor", "default_popup": "popup.html" }
+  "action": { "default_title": "Capacity Monitor", "default_popup": "popup.html" },
+  "options_ui": { "page": "options.html", "open_in_tab": true }
 }
