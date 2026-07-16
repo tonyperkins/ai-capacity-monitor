@@ -4,7 +4,7 @@ const REQUIRED_TABS = [
   { key: "openai-api-credit", url: "https://platform.openai.com/home", match: "platform.openai.com/home" },
   { key: "claude-api-credit", url: "https://platform.claude.com/dashboard", match: "platform.claude.com/dashboard" },
   { key: "chatgpt-weekly", url: "https://chatgpt.com/#settings/Usage", match: "#settings/Usage" },
-  { key: "claude-usage-credit", url: "https://claude.ai/new#settings/usage", match: "claude.ai/new#settings/usage" },
+  { key: "claude-usage-credit", keys: ["claude-usage-credit", "claude-session", "claude-weekly", "claude-fable", "claude-usage-cap"], url: "https://claude.ai/new#settings/usage", match: "claude.ai/new#settings/usage" },
 ];
 let activeCollection = null;
 
@@ -53,7 +53,7 @@ async function runCollection(targets) {
   await refreshTabs(tabs, opened);
   await waitForTabsReady(tabs);
   const parsedMetrics = await readWithRetries(tabs, targets.map((target) => target.key));
-  const targetKeys = new Set(targets.map((target) => target.key));
+  const targetKeys = new Set(targets.flatMap((target) => target.keys ?? [target.key]));
   const metrics = parsedMetrics.filter((metric) => targetKeys.has(metric.key));
   const previous = await chrome.storage.local.get("latestMetrics");
   const priorByKey = Object.fromEntries((previous.latestMetrics ?? []).map((metric) => [metric.key, metric]));
@@ -154,7 +154,12 @@ function parseVisibleMetrics() {
     const candidates = [...text.slice(Math.max(0, index - 120), index).matchAll(currencyToken)];
     return candidates.at(-1)?.[0] ?? null;
   };
-  const percentAfter = (label) => { const match = text.match(new RegExp(`${label}[\\s\\S]{0,180}?(\\d+)%\\s*(?:remaining|used)`, "i")); return match ? Number(match[1]) : null; };
+  const percentAfter = (label) => {
+    const index = text.toLowerCase().lastIndexOf(label.toLowerCase());
+    if (index < 0) return null;
+    const match = text.slice(index, index + 240).match(/(\d+)%\s*(?:remaining|used)/i);
+    return match ? Number(match[1]) : null;
+  };
   const money = (value) => {
     const normalized = value.replace(/[\s$,()]/g, "");
     return Number(value.includes("(") ? `-${normalized}` : normalized);
