@@ -6,6 +6,7 @@ const REQUIRED_TABS = [
   { url: "https://chatgpt.com/#settings/Usage", match: "#settings/Usage" },
   { url: "https://claude.ai/new#settings/usage", match: "claude.ai/new#settings/usage" },
 ];
+let activeCollection = null;
 
 chrome.runtime.onInstalled.addListener(() => chrome.alarms.create("collect", { periodInMinutes: 2 }));
 chrome.alarms.onAlarm.addListener((alarm) => { if (alarm.name === "collect" || alarm.name === "collect-retry") collect(); });
@@ -15,7 +16,13 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   return true;
 });
 
-async function collect() {
+function collect() {
+  if (activeCollection) return activeCollection;
+  activeCollection = runCollection().finally(() => { activeCollection = null; });
+  return activeCollection;
+}
+
+async function runCollection() {
   const { tabs, opened } = await ensureDashboardTabs();
   await refreshTabs(tabs, opened);
   await waitForTabsReady(tabs);
@@ -86,7 +93,7 @@ async function closeTabs(tabIds) {
 }
 
 async function readWithRetries(tabs) {
-  const maxAttempts = 8;
+  const maxAttempts = 10;
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     const results = await Promise.all(tabs.map(async (tab) => {
       try {
