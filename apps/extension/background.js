@@ -18,6 +18,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 async function collect() {
   const { tabs, opened } = await ensureDashboardTabs();
   await refreshTabs(tabs);
+  await waitForTabsReady(tabs);
   const metrics = await readWithRetries(tabs);
   const previous = await chrome.storage.local.get("latestMetrics");
   const priorByKey = Object.fromEntries((previous.latestMetrics ?? []).map((metric) => [metric.key, metric]));
@@ -68,12 +69,24 @@ async function refreshTabs(tabs) {
   }));
 }
 
+async function waitForTabsReady(tabs, timeoutMs = 15000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const states = await Promise.all(tabs.map(async (tab) => {
+      try { return (await chrome.tabs.get(tab.id)).status; } catch { return "closed"; }
+    }));
+    if (states.every((status) => status === "complete" || status === "closed")) return;
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+}
+
 async function closeTabs(tabIds) {
   try { await chrome.tabs.remove(tabIds); } catch { /* Tabs may have been closed manually. */ }
 }
 
 async function readWithRetries(tabs) {
-  for (let attempt = 0; attempt < 3; attempt += 1) {
+  const maxAttempts = 8;
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     const results = await Promise.all(tabs.map(async (tab) => {
       try {
         const current = await chrome.tabs.get(tab.id);
@@ -85,8 +98,8 @@ async function readWithRetries(tabs) {
     const metrics = results.flat();
     const essentials = ["kilo-credit", "openai-api-credit", "claude-api-credit", "claude-usage-credit", "chatgpt-weekly"];
     const kiloIsZero = metrics.some((metric) => metric.key === "kilo-credit" && metric.value === 0);
-    if ((essentials.every((key) => metrics.some((metric) => metric.key === key)) && !kiloIsZero) || attempt === 2) return metrics;
-    await new Promise((resolve) => setTimeout(resolve, 1200));
+    if ((essentials.every((key) => metrics.some((metric) => metric.key === key)) && !kiloIsZero) || attempt === maxAttempts - 1) return metrics;
+    await new Promise((resolve) => setTimeout(resolve, 1500));
   }
   return [];
 }
