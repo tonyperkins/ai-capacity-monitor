@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AI Capacity Monitor Snapshot v1",
+  "type": "object",
+  "required": ["version", "collectedAt", "metrics", "issues"],
+  "properties": {
+    "version": { "const": "1" },
+    "collectedAt": { "type": "string", "format": "date-time" },
+    "metrics": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["key", "provider", "label", "kind", "value", "unit", "status"],
+        "properties": {
+          "key": { "type": "string" },
+          "provider": { "type": "string" },
+          "label": { "type": "string" },
+          "kind": { "enum": ["credit", "quota"] },
+          "value": { "type": "number" },
+          "unit": { "enum": ["usd", "percent"] },
+          "status": { "enum": ["verified", "unverified"] },
+          "resetAt": { "type": "string", "format": "date-time" }
+        }
+      }
+    },
+    "issues": { "type": "array", "items": { "type": "string" } }
+  }
+}
