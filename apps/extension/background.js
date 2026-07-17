@@ -198,8 +198,7 @@ function parseVisibleMetrics() {
   const percentAfter = (label) => { const match = quotaWindow(label)?.match(/(\d+)%\s*(?:remaining|used)/i); return match ? Number(match[1]) : null; };
   const resetAfter = (label) => {
     const window = quotaWindow(label);
-    const percentageIndex = window?.search(/\d+%\s*(?:remaining|used)/i) ?? -1;
-    return percentageIndex >= 0 ? window.slice(0, percentageIndex).match(/Resets[^\n]+/i)?.[0] : undefined;
+    return window?.match(/Resets[^\n]+/i)?.[0];
   };
   const money = (value) => {
     const normalized = value.replace(/[\s$,()]/g, "");
