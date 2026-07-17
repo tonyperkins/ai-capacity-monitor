@@ -98,9 +98,9 @@ async function runCollection(targets) {
     return { ok: false, error: "No verified values were collected; retry shortly.", issues };
   }
   await chrome.storage.local.set({ latestMetrics, lastCollectedAt: collectedAt, lastIssues: issues });
-  const { closeOpenedTabs = false } = await chrome.storage.local.get("closeOpenedTabs");
+  const { closeOpenedTabs = false, bridgeSecret = "" } = await chrome.storage.local.get(["closeOpenedTabs", "bridgeSecret"]);
   try {
-    const response = await fetch(ENDPOINT, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ collectedAt, metrics: verifiedMetrics }) });
+    const response = await fetch(ENDPOINT, { method: "POST", headers: { "content-type": "application/json", "x-collector-secret": bridgeSecret }, body: JSON.stringify({ collectedAt, metrics: verifiedMetrics }) });
     const result = await response.json().catch(() => ({}));
     if (!response.ok) return { ok: false, error: "Dashboard delivery failed; local snapshot was saved." };
     if (closeOpenedTabs && opened.length) await closeTabs(opened);

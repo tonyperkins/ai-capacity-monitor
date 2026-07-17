@@ -1,10 +1,17 @@
 import http from "node:http";
-import { readFile } from "node:fs/promises";
+import crypto from "node:crypto";
+import { readFile, writeFile } from "node:fs/promises";
 
 const configPath = process.env.CAPACITY_COLLECTOR_CONFIG ?? new URL("./config.local.json", import.meta.url);
 const config = JSON.parse(await readFile(configPath, "utf8"));
+if (!config.collectorSecret) {
+  config.collectorSecret = crypto.randomBytes(32).toString("hex");
+  await writeFile(configPath, JSON.stringify(config, null, 2));
+  console.log(`Generated a new collector secret. Paste this into the extension's Settings page (Local bridge secret):\n${config.collectorSecret}`);
+}
 const server = http.createServer(async (request, response) => {
   if (request.method !== "POST" || request.url !== "/collect") return response.writeHead(404).end();
+  if (request.headers["x-collector-secret"] !== config.collectorSecret) return response.writeHead(401, { "content-type": "application/json" }).end(JSON.stringify({ error: "Unauthorized" }));
   let raw = ""; for await (const chunk of request) raw += chunk;
   console.log(`Collection received: ${raw.length} bytes`);
   try {
