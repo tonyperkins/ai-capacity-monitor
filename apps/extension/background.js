@@ -83,7 +83,9 @@ async function runCollection(targets) {
   const previous = await chrome.storage.local.get("latestMetrics");
   const priorByKey = Object.fromEntries((previous.latestMetrics ?? []).map((metric) => [metric.key, metric]));
   const { autoCollectionEnabled = true } = await chrome.storage.local.get("autoCollectionEnabled");
-  const { verifiedMetrics, heldMetrics } = await reconcileMetrics(metrics, priorByKey);
+  const { verifiedMetrics: reconciledMetrics, heldMetrics } = await reconcileMetrics(metrics, priorByKey);
+  const collectedAt = new Date().toISOString();
+  const verifiedMetrics = reconciledMetrics.map((metric) => ({ ...metric, collectedAt }));
   const issues = heldMetrics.map((held) => autoCollectionEnabled
     ? `${held.metric.provider} returned ${held.metric.display} unexpectedly. Kept the prior verified value and will confirm automatically.`
     : `${held.metric.provider} returned ${held.metric.display} unexpectedly. Kept the prior verified value; automatic updates are paused.`);
@@ -95,7 +97,6 @@ async function runCollection(targets) {
     await chrome.storage.local.set({ latestMetrics, lastIssues: issues });
     return { ok: false, error: "No verified values were collected; retry shortly.", issues };
   }
-  const collectedAt = new Date().toISOString();
   await chrome.storage.local.set({ latestMetrics, lastCollectedAt: collectedAt, lastIssues: issues });
   const { closeOpenedTabs = false } = await chrome.storage.local.get("closeOpenedTabs");
   try {
