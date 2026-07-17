@@ -232,7 +232,12 @@ function parseVisibleMetrics() {
     for (let index = lowerText.indexOf(lowerLabel); index >= 0; index = lowerText.indexOf(lowerLabel, index + lowerLabel.length)) indexes.push(index);
     return indexes.reverse().map((index) => text.slice(index, index + 120)).find((window) => /\d+%\s*(?:remaining|used)/i.test(window));
   };
-  const percentAfter = (label) => { const match = quotaWindow(label)?.match(/(\d+)%\s*(?:remaining|used)/i); return match ? Number(match[1]) : null; };
+  const remainingPercentAfter = (label) => {
+    const match = quotaWindow(label)?.match(/(\d+)%\s*(remaining|used)/i);
+    if (!match) return null;
+    const amount = Number(match[1]);
+    return /used/i.test(match[2]) ? 100 - amount : amount;
+  };
   const resetAfter = (label) => {
     const window = quotaWindow(label);
     return window?.match(/Resets[^\n]+/i)?.[0];
@@ -251,13 +256,13 @@ function parseVisibleMetrics() {
   if (location.hostname === "app.kilo.ai") addCredit("kilo-credit", "Kilo Balance", "Remaining credits", kiloBalance());
   if (location.hostname === "platform.openai.com") addCredit("openai-api-credit", "OpenAI API Balance", "Prepaid API credit", moneyAfter("Credit balance"));
   if (location.hostname === "platform.claude.com") addCredit("claude-api-credit", "Claude API Balance", "Organization credits", moneyAfter("Organization credits"));
-  if (location.hostname === "chatgpt.com") addQuota("chatgpt-weekly", "ChatGPT Plus", "Weekly usage", percentAfter("Weekly usage limit"), resetAfter("Weekly usage limit"));
+  if (location.hostname === "chatgpt.com") addQuota("chatgpt-weekly", "ChatGPT Plus", "Weekly usage", remainingPercentAfter("Weekly usage limit"), resetAfter("Weekly usage limit"));
   if (location.hostname === "claude.ai") {
-    addQuota("claude-session", "Claude Pro", "Current session", 100 - (percentAfter("Current session") ?? 0), resetAfter("Current session"));
-    addQuota("claude-weekly", "Claude Pro", "Weekly · all models", 100 - (percentAfter("All models") ?? 0), resetAfter("All models"));
-    addQuota("claude-fable", "Claude Pro", "Weekly · Fable", 100 - (percentAfter("Fable") ?? 0), resetAfter("Fable"));
+    addQuota("claude-session", "Claude Pro", "Current session", remainingPercentAfter("Current session"), resetAfter("Current session"));
+    addQuota("claude-weekly", "Claude Pro", "Weekly · all models", remainingPercentAfter("All models"), resetAfter("All models"));
+    addQuota("claude-fable", "Claude Pro", "Weekly · Fable", remainingPercentAfter("Fable"), resetAfter("Fable"));
     addCredit("claude-usage-credit", "Claude.ai Balance", "Usage-credit balance", moneyBefore("Current balance") ?? moneyAfter("Current balance"));
-    const used = percentAfter("Usage credits"); if (used !== null) addQuota("claude-usage-cap", "Claude usage", "Monthly spending cap", 100 - used, resetAfter("Usage credits"));
+    addQuota("claude-usage-cap", "Claude usage", "Monthly spending cap", remainingPercentAfter("Usage credits"), resetAfter("Usage credits"));
   }
   return out;
 }
