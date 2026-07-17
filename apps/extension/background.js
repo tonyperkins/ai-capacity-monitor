@@ -176,17 +176,15 @@ function parseVisibleMetrics() {
     const card = label?.parentElement?.parentElement;
     return card?.innerText.match(currencyToken)?.[0] ?? null;
   };
-  const percentAfter = (label) => {
-    const index = text.toLowerCase().lastIndexOf(label.toLowerCase());
-    if (index < 0) return null;
-    const match = text.slice(index, index + 240).match(/(\d+)%\s*(?:remaining|used)/i);
-    return match ? Number(match[1]) : null;
+  const quotaWindow = (label) => {
+    const lowerText = text.toLowerCase();
+    const lowerLabel = label.toLowerCase();
+    const indexes = [];
+    for (let index = lowerText.indexOf(lowerLabel); index >= 0; index = lowerText.indexOf(lowerLabel, index + lowerLabel.length)) indexes.push(index);
+    return indexes.reverse().map((index) => text.slice(index, index + 240)).find((window) => /\d+%\s*(?:remaining|used)/i.test(window));
   };
-  const resetAfter = (label) => {
-    const index = text.toLowerCase().lastIndexOf(label.toLowerCase());
-    if (index < 0) return undefined;
-    return text.slice(index, index + 240).match(/Resets[^\n]+/i)?.[0];
-  };
+  const percentAfter = (label) => { const match = quotaWindow(label)?.match(/(\d+)%\s*(?:remaining|used)/i); return match ? Number(match[1]) : null; };
+  const resetAfter = (label) => quotaWindow(label)?.match(/Resets[^\n]+/i)?.[0];
   const money = (value) => {
     const normalized = value.replace(/[\s$,()]/g, "");
     return Number(value.includes("(") ? `-${normalized}` : normalized);
