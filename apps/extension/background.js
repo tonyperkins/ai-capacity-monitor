@@ -188,10 +188,14 @@ function parseVisibleMetrics() {
     const lowerLabel = label.toLowerCase();
     const indexes = [];
     for (let index = lowerText.indexOf(lowerLabel); index >= 0; index = lowerText.indexOf(lowerLabel, index + lowerLabel.length)) indexes.push(index);
-    return indexes.reverse().map((index) => text.slice(index, index + 240)).find((window) => /\d+%\s*(?:remaining|used)/i.test(window));
+    return indexes.reverse().map((index) => text.slice(index, index + 120)).find((window) => /\d+%\s*(?:remaining|used)/i.test(window));
   };
   const percentAfter = (label) => { const match = quotaWindow(label)?.match(/(\d+)%\s*(?:remaining|used)/i); return match ? Number(match[1]) : null; };
-  const resetAfter = (label) => quotaWindow(label)?.match(/Resets[^\n]+/i)?.[0];
+  const resetAfter = (label) => {
+    const window = quotaWindow(label);
+    const percentageIndex = window?.search(/\d+%\s*(?:remaining|used)/i) ?? -1;
+    return percentageIndex >= 0 ? window.slice(0, percentageIndex).match(/Resets[^\n]+/i)?.[0] : undefined;
+  };
   const money = (value) => {
     const normalized = value.replace(/[\s$,()]/g, "");
     return Number(value.includes("(") ? `-${normalized}` : normalized);
