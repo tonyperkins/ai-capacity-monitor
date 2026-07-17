@@ -54,14 +54,14 @@ async function initializeSchedule() {
   const config = await chrome.storage.local.get(["autoCollectionEnabled", "collectionIntervalMinutes"]);
   await chrome.storage.local.set({
     ...(config.autoCollectionEnabled === undefined ? { autoCollectionEnabled: true } : {}),
-    ...(config.collectionIntervalMinutes === undefined ? { collectionIntervalMinutes: 2 } : {}),
+    ...(config.collectionIntervalMinutes === undefined ? { collectionIntervalMinutes: 20 } : {}),
   });
   await syncSchedule();
 }
 
 async function syncSchedule() {
-  const { autoCollectionEnabled = true, collectionIntervalMinutes = 2 } = await chrome.storage.local.get(["autoCollectionEnabled", "collectionIntervalMinutes"]);
-  const interval = Math.max(1, Math.min(1440, Number(collectionIntervalMinutes) || 2));
+  const { autoCollectionEnabled = true, collectionIntervalMinutes = 20 } = await chrome.storage.local.get(["autoCollectionEnabled", "collectionIntervalMinutes"]);
+  const interval = Math.max(1, Math.min(1440, Number(collectionIntervalMinutes) || 20));
   await chrome.alarms.clear("collect");
   if (autoCollectionEnabled) chrome.alarms.create("collect", { periodInMinutes: interval });
   if (!autoCollectionEnabled) await chrome.alarms.clear("collect-retry");

@@ -13,3 +13,13 @@ Consumers receive the `snapshot.v1.json` shape. The payload excludes raw DOM con
 1. Disabled (default): extension popup and local snapshot only.
 2. Local HTTP receiver: `127.0.0.1` service owns remote credentials and forwards the contract.
 3. Direct webhook: explicit user-configured HTTPS URL and authorization header.
+
+## Collection cadence
+
+The default automatic-collection interval is 20 minutes. Credit balances and
+quota windows don't move fast enough to justify tighter polling, and a
+shorter interval reloads open provider tabs — including ones the user is
+actively using — often enough to lose in-progress page state (e.g. an
+unsent draft) and to look like automated traffic to a provider's bot
+detection. Users who want fresher data can lower the interval in Settings or
+use the manual/per-card refresh, which are unaffected by this default.
