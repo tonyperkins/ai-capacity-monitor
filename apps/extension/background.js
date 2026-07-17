@@ -1,4 +1,7 @@
 const ENDPOINT = "http://127.0.0.1:8787/collect";
+const SUSPICION_CONFIRMATIONS_REQUIRED = 2;
+const SUSPICION_MAX_AGE_MS = 10 * 60 * 1000;
+const SUSPICION_RETRY_DELAY_MS = 30 * 1000;
 const REQUIRED_TABS = [
   { key: "kilo-credit", url: "https://app.kilo.ai/credits", match: "app.kilo.ai/credits" },
   { key: "openai-api-credit", url: "https://platform.openai.com/home", match: "platform.openai.com/home" },
@@ -16,7 +19,12 @@ chrome.storage.onChanged.addListener((changes, area) => {
 chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name !== "collect" && alarm.name !== "collect-retry") return;
   const { autoCollectionEnabled = true } = await chrome.storage.local.get("autoCollectionEnabled");
-  if (autoCollectionEnabled) collect(alarm.name === "collect-retry" ? REQUIRED_TABS.filter((target) => target.key === "kilo-credit") : REQUIRED_TABS);
+  if (!autoCollectionEnabled) return;
+  if (alarm.name === "collect") return collect(REQUIRED_TABS);
+  const { pendingSuspicion = {} } = await chrome.storage.local.get("pendingSuspicion");
+  const pendingKeys = new Set(Object.keys(pendingSuspicion));
+  const targets = REQUIRED_TABS.filter((target) => (target.keys ?? [target.key]).some((key) => pendingKeys.has(key)));
+  if (targets.length) collect(targets);
 });
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type === "focus-provider") {
@@ -74,16 +82,13 @@ async function runCollection(targets) {
   const metrics = parsedMetrics.filter((metric) => targetKeys.has(metric.key));
   const previous = await chrome.storage.local.get("latestMetrics");
   const priorByKey = Object.fromEntries((previous.latestMetrics ?? []).map((metric) => [metric.key, metric]));
-  const issues = [];
   const { autoCollectionEnabled = true } = await chrome.storage.local.get("autoCollectionEnabled");
-  const verifiedMetrics = metrics.filter((metric) => {
-    if (metric.key === "kilo-credit" && metric.value === 0 && priorByKey[metric.key]?.value > 0) {
-      issues.push(autoCollectionEnabled ? "Kilo returned $0.00 unexpectedly. Kept the prior verified balance and will retry automatically in 30 seconds." : "Kilo returned $0.00 unexpectedly. Kept the prior verified balance; automatic updates are paused.");
-      if (autoCollectionEnabled) chrome.alarms.create("collect-retry", { when: Date.now() + 30000 });
-      return false;
-    }
-    return true;
-  });
+  const { verifiedMetrics, heldMetrics } = await reconcileMetrics(metrics, priorByKey);
+  const issues = heldMetrics.map((held) => autoCollectionEnabled
+    ? `${held.metric.provider} returned ${held.metric.display} unexpectedly. Kept the prior verified value and will confirm automatically.`
+    : `${held.metric.provider} returned ${held.metric.display} unexpectedly. Kept the prior verified value; automatic updates are paused.`);
+  await chrome.alarms.clear("collect-retry");
+  if (heldMetrics.length && autoCollectionEnabled) chrome.alarms.create("collect-retry", { when: Date.now() + SUSPICION_RETRY_DELAY_MS });
   const latestMetrics = Object.values(Object.fromEntries([...(previous.latestMetrics ?? []), ...verifiedMetrics].map((metric) => [metric.key, metric])));
   if (!metrics.length) return { ok: false, error: opened.length ? "Provider pages are still loading; retry in a moment." : "No readable provider values found yet." };
   if (!verifiedMetrics.length) {
@@ -103,6 +108,39 @@ async function runCollection(targets) {
     if (closeOpenedTabs && opened.length) await closeTabs(opened);
     return { ok: false, error: "Dashboard delivery failed; local snapshot was saved." };
   }
+}
+
+function isSuspiciousReading(metric, prior) {
+  return metric.kind === "credit" && metric.value === 0 && Number.isFinite(prior?.value) && prior.value > 0;
+}
+
+async function reconcileMetrics(metrics, priorByKey) {
+  const now = Date.now();
+  const { pendingSuspicion = {} } = await chrome.storage.local.get("pendingSuspicion");
+  const nextPending = { ...pendingSuspicion };
+  const verifiedMetrics = [];
+  const heldMetrics = [];
+  for (const metric of metrics) {
+    const prior = priorByKey[metric.key];
+    if (!isSuspiciousReading(metric, prior)) {
+      delete nextPending[metric.key];
+      verifiedMetrics.push(metric);
+      continue;
+    }
+    const pending = nextPending[metric.key];
+    const sameReading = pending?.value === metric.value;
+    const streak = sameReading ? pending.streak + 1 : 1;
+    const firstSeenAt = sameReading ? pending.firstSeenAt : now;
+    if (streak > SUSPICION_CONFIRMATIONS_REQUIRED || now - firstSeenAt > SUSPICION_MAX_AGE_MS) {
+      delete nextPending[metric.key];
+      verifiedMetrics.push(metric);
+      continue;
+    }
+    nextPending[metric.key] = { value: metric.value, firstSeenAt, streak };
+    heldMetrics.push({ metric, streak, firstSeenAt });
+  }
+  await chrome.storage.local.set({ pendingSuspicion: nextPending });
+  return { verifiedMetrics, heldMetrics };
 }
 
 async function ensureDashboardTabs(targets = REQUIRED_TABS) {
@@ -155,9 +193,7 @@ async function readWithRetries(tabs, requiredKeys) {
       } catch { return []; }
     }));
     const metrics = results.flat();
-    const essentials = requiredKeys;
-    const kiloIsZero = metrics.some((metric) => metric.key === "kilo-credit" && metric.value === 0);
-    if ((essentials.every((key) => metrics.some((metric) => metric.key === key)) && !kiloIsZero) || attempt === maxAttempts - 1) return metrics;
+    if (requiredKeys.every((key) => metrics.some((metric) => metric.key === key)) || attempt === maxAttempts - 1) return metrics;
     await new Promise((resolve) => setTimeout(resolve, 1500));
   }
   return [];
