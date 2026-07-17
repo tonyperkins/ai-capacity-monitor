@@ -91,13 +91,18 @@ async function runCollection(targets) {
     return { ok: false, error: "No verified values were collected; retry shortly.", issues };
   }
   const collectedAt = new Date().toISOString();
-  const response = await fetch(ENDPOINT, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ collectedAt, metrics: verifiedMetrics }) });
-  const result = await response.json().catch(() => ({}));
-  if (!response.ok) return { ok: false, error: "Dashboard delivery failed." };
   await chrome.storage.local.set({ latestMetrics, lastCollectedAt: collectedAt, lastIssues: issues });
   const { closeOpenedTabs = false } = await chrome.storage.local.get("closeOpenedTabs");
-  if (closeOpenedTabs && opened.length) await closeTabs(opened);
-  return { ok: true, accepted: result.accepted, collectedAt, opened, issues };
+  try {
+    const response = await fetch(ENDPOINT, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ collectedAt, metrics: verifiedMetrics }) });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) return { ok: false, error: "Dashboard delivery failed; local snapshot was saved." };
+    if (closeOpenedTabs && opened.length) await closeTabs(opened);
+    return { ok: true, accepted: result.accepted, collectedAt, opened, issues };
+  } catch {
+    if (closeOpenedTabs && opened.length) await closeTabs(opened);
+    return { ok: false, error: "Dashboard delivery failed; local snapshot was saved." };
+  }
 }
 
 async function ensureDashboardTabs(targets = REQUIRED_TABS) {
