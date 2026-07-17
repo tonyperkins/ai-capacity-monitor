@@ -48,19 +48,62 @@ const worker = {
   },
 };
 
-type Metric = { key: string; provider: string; label: string; kind: "credit" | "quota"; value: number; display: string; resetText?: string };
+// Mirrors packages/contract/snapshot.v1.json. Kept as a hand-written
+// validator rather than a generic JSON-Schema library: Cloudflare Workers
+// don't allow the runtime eval() that most schema validators (e.g. ajv)
+// compile validators with.
+type SnapshotMetric = {
+  key: string;
+  provider: string;
+  label: string;
+  kind: "credit" | "quota";
+  value: number;
+  unit: "usd" | "percent";
+  status: "verified" | "unverified";
+  resetAt?: string;
+  collectedAt?: string;
+  display?: string;
+  resetText?: string;
+};
+
+type Snapshot = { version: "1"; collectedAt: string; metrics: SnapshotMetric[]; issues: string[] };
+
+function isValidMetric(value: unknown): value is SnapshotMetric {
+  if (typeof value !== "object" || value === null) return false;
+  const m = value as Record<string, unknown>;
+  return (
+    typeof m.key === "string" && m.key.length > 0 && m.key.length <= 80 &&
+    typeof m.provider === "string" && m.provider.length > 0 && m.provider.length <= 80 &&
+    typeof m.label === "string" && m.label.length > 0 && m.label.length <= 100 &&
+    (m.kind === "credit" || m.kind === "quota") &&
+    Number.isFinite(m.value) &&
+    (m.unit === "usd" || m.unit === "percent") &&
+    (m.status === "verified" || m.status === "unverified") &&
+    (m.display === undefined || (typeof m.display === "string" && m.display.length <= 40)) &&
+    (m.resetText === undefined || (typeof m.resetText === "string" && m.resetText.length <= 160)) &&
+    (m.resetAt === undefined || typeof m.resetAt === "string") &&
+    (m.collectedAt === undefined || typeof m.collectedAt === "string")
+  );
+}
+
+function isValidSnapshot(body: unknown): body is Snapshot {
+  if (typeof body !== "object" || body === null) return false;
+  const snapshot = body as Record<string, unknown>;
+  if (snapshot.version !== "1") return false;
+  if (typeof snapshot.collectedAt !== "string" || Number.isNaN(Date.parse(snapshot.collectedAt))) return false;
+  if (!Array.isArray(snapshot.issues) || !snapshot.issues.every((issue) => typeof issue === "string")) return false;
+  if (!Array.isArray(snapshot.metrics) || snapshot.metrics.length === 0 || snapshot.metrics.length > 24) return false;
+  return snapshot.metrics.every(isValidMetric);
+}
 
 async function ingest(request: Request, env: Env): Promise<Response> {
   if (request.method !== "POST") return new Response("Method not allowed", { status: 405 });
   if (!env.COLLECTOR_TOKEN || request.headers.get("authorization") !== `Bearer ${env.COLLECTOR_TOKEN}`) return new Response("Unauthorized", { status: 401 });
-  let body: { collectedAt?: string; metrics?: Metric[] };
+  let body: unknown;
   try { body = await request.json(); } catch { return new Response("Invalid JSON", { status: 400 }); }
-  const collectedAt = body.collectedAt;
-  const metrics = body.metrics;
-  if (!collectedAt || !Array.isArray(metrics) || metrics.length === 0 || metrics.length > 24) return new Response("Invalid payload", { status: 400 });
-  const safe = metrics.every((m) => typeof m.key === "string" && m.key.length < 80 && typeof m.provider === "string" && m.provider.length < 80 && typeof m.label === "string" && m.label.length < 100 && (m.kind === "credit" || m.kind === "quota") && Number.isFinite(m.value) && typeof m.display === "string" && m.display.length < 40 && (!m.resetText || m.resetText.length < 160));
-  if (!safe) return new Response("Invalid metric", { status: 400 });
-  await env.DB.batch(metrics.map((m) => env.DB.prepare("INSERT INTO metrics (collected_at, metric_key, provider, label, kind, value, display, reset_text) VALUES (?, ?, ?, ?, ?, ?, ?, ?)").bind(collectedAt, m.key, m.provider, m.label, m.kind, Math.round(m.value), m.display, m.resetText ?? null)));
+  if (!isValidSnapshot(body)) return new Response("Invalid payload", { status: 400 });
+  const { collectedAt, metrics } = body;
+  await env.DB.batch(metrics.map((m) => env.DB.prepare("INSERT INTO metrics (collected_at, metric_key, provider, label, kind, value, display, reset_text) VALUES (?, ?, ?, ?, ?, ?, ?, ?)").bind(m.collectedAt ?? collectedAt, m.key, m.provider, m.label, m.kind, Math.round(m.value), m.display ?? "", m.resetText ?? null)));
   return Response.json({ accepted: metrics.length });
 }
 

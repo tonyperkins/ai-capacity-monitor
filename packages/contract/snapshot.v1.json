@@ -5,21 +5,47 @@
   "required": ["version", "collectedAt", "metrics", "issues"],
   "properties": {
     "version": { "const": "1" },
-    "collectedAt": { "type": "string", "format": "date-time" },
+    "collectedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Timestamp of the collection pass that produced this snapshot."
+    },
     "metrics": {
       "type": "array",
+      "maxItems": 24,
       "items": {
         "type": "object",
         "required": ["key", "provider", "label", "kind", "value", "unit", "status"],
         "properties": {
-          "key": { "type": "string" },
-          "provider": { "type": "string" },
-          "label": { "type": "string" },
+          "key": { "type": "string", "maxLength": 80 },
+          "provider": { "type": "string", "maxLength": 80 },
+          "label": { "type": "string", "maxLength": 100 },
           "kind": { "enum": ["credit", "quota"] },
-          "value": { "type": "number" },
+          "value": {
+            "type": "integer",
+            "description": "For kind \"credit\" with unit \"usd\": integer minor units (cents) — 305 means $3.05. For kind \"quota\" with unit \"percent\": integer 0-100, percent remaining. Values are never decimal dollars."
+          },
           "unit": { "enum": ["usd", "percent"] },
-          "status": { "enum": ["verified", "unverified"] },
-          "resetAt": { "type": "string", "format": "date-time" }
+          "status": {
+            "enum": ["verified", "unverified"],
+            "description": "\"verified\" is a freshly confirmed reading. \"unverified\" is reserved for a reading a consumer should not treat as authoritative yet; producers currently only ever send \"verified\" metrics — an unconfirmed reading is held back and not included in the snapshot at all."
+          },
+          "resetAt": { "type": "string", "format": "date-time" },
+          "collectedAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When this specific metric was last verified. May be older than the snapshot's top-level collectedAt when only some metrics were refreshed in this pass."
+          },
+          "display": {
+            "type": "string",
+            "maxLength": 40,
+            "description": "Optional pre-formatted display string, e.g. \"$3.05\" or \"88%\". Not authoritative — a consumer should derive its own display from value/unit when possible; this exists for consumers that want to skip formatting."
+          },
+          "resetText": {
+            "type": "string",
+            "maxLength": 160,
+            "description": "Optional raw provider-page reset phrase, e.g. \"Resets in 3 hr 52 min\". Prefer resetAt when present."
+          }
         }
       }
     },

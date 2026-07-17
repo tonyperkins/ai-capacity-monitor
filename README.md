@@ -12,7 +12,7 @@ A standalone Chrome extension that reads user-visible AI credit balances and sub
 
 ## Security model
 
-The extension never publishes raw page text, browser cookies, API tokens, or account identifiers. Every collection currently posts parsed metrics to a hard-coded local endpoint (`http://127.0.0.1:8787/collect`) — publishing is not yet a user-configurable, opt-in destination, and the posted payload does not yet match the versioned `snapshot.v1.json` contract. See [docs/productization-plan.md](docs/productization-plan.md) for the plan to close this gap (tracked as [#6](https://github.com/tonyperkins/ai-capacity-monitor/issues/6)).
+The extension never publishes raw page text, browser cookies, API tokens, or account identifiers. Every collection currently posts a versioned `snapshot.v1.json`-conformant payload to a hard-coded local endpoint (`http://127.0.0.1:8787/collect`), authenticated with a per-install secret; the dashboard's ingest endpoint validates the payload against the same contract before accepting it. Publishing is not yet a user-configurable, opt-in destination — see [docs/productization-plan.md](docs/productization-plan.md) for the plan to close that gap.
 
 ## Product roadmap
 

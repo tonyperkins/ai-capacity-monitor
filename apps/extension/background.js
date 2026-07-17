@@ -99,8 +99,14 @@ async function runCollection(targets) {
   }
   await chrome.storage.local.set({ latestMetrics, lastCollectedAt: collectedAt, lastIssues: issues });
   const { closeOpenedTabs = false, bridgeSecret = "" } = await chrome.storage.local.get(["closeOpenedTabs", "bridgeSecret"]);
+  const snapshot = {
+    version: "1",
+    collectedAt,
+    metrics: verifiedMetrics.map((metric) => ({ ...metric, unit: metric.kind === "credit" ? "usd" : "percent", status: "verified" })),
+    issues,
+  };
   try {
-    const response = await fetch(ENDPOINT, { method: "POST", headers: { "content-type": "application/json", "x-collector-secret": bridgeSecret }, body: JSON.stringify({ collectedAt, metrics: verifiedMetrics }) });
+    const response = await fetch(ENDPOINT, { method: "POST", headers: { "content-type": "application/json", "x-collector-secret": bridgeSecret }, body: JSON.stringify(snapshot) });
     const result = await response.json().catch(() => ({}));
     if (!response.ok) return { ok: false, error: "Dashboard delivery failed; local snapshot was saved." };
     if (closeOpenedTabs && opened.length) await closeTabs(opened);
