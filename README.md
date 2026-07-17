@@ -13,3 +13,10 @@ A standalone Chrome extension that reads user-visible AI credit balances and sub
 ## Security model
 
 The extension never publishes raw page text, browser cookies, API tokens, or account identifiers. Publishing is disabled by default. Consumers receive only validated metrics and collection diagnostics defined by the contract.
+
+## Product roadmap
+
+The current project is a working personal prototype. The proposed path to a
+shareable, extension-first product—including provider profile updates, generic
+webhook publishing, security, testing, and release operations—is documented in
+[docs/productization-plan.md](docs/productization-plan.md).
