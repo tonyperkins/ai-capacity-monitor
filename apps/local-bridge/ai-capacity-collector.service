@@ -1,0 +1,13 @@
+[Unit]
+Description=AI Capacity Monitor local bridge
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/node /home/tonyperkins/projects/ai-capacity-monitor/apps/local-bridge/run.js
+Environment=CAPACITY_COLLECTOR_CONFIG=/home/tonyperkins/.config/ai-capacity-monitor/collector.json
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target
