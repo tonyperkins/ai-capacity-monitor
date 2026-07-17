@@ -1,6 +1,6 @@
 const ENDPOINT = "http://127.0.0.1:8787/collect";
 const REQUIRED_TABS = [
-  { key: "kilo-credit", url: "https://app.kilo.ai/profile", match: "app.kilo.ai/profile" },
+  { key: "kilo-credit", url: "https://app.kilo.ai/credits", match: "app.kilo.ai/credits" },
   { key: "openai-api-credit", url: "https://platform.openai.com/home", match: "platform.openai.com/home" },
   { key: "claude-api-credit", url: "https://platform.claude.com/dashboard", match: "platform.claude.com/dashboard" },
   { key: "chatgpt-weekly", url: "https://chatgpt.com/#settings/Usage", match: "#settings/Usage" },
@@ -172,9 +172,16 @@ function parseVisibleMetrics() {
     return candidates.at(-1)?.[0] ?? null;
   };
   const kiloBalance = () => {
-    const label = [...document.querySelectorAll("*")].find((element) => element.children.length === 0 && element.textContent?.trim() === "Remaining Credits");
-    const card = label?.parentElement?.parentElement;
-    return card?.innerText.match(currencyToken)?.[0] ?? null;
+    const labels = ["Remaining Credits", "Available Credits", "Credit Balance", "Current Balance"];
+    for (const labelText of labels) {
+      const label = [...document.querySelectorAll("*")].find((element) => element.children.length === 0 && element.textContent?.trim().toLowerCase() === labelText.toLowerCase());
+      const card = label?.parentElement?.parentElement;
+      const cardAmount = card?.innerText.match(currencyToken)?.[0];
+      if (cardAmount) return cardAmount;
+      const nearbyAmount = moneyAfter(labelText);
+      if (nearbyAmount) return nearbyAmount;
+    }
+    return null;
   };
   const quotaWindow = (label) => {
     const lowerText = text.toLowerCase();
