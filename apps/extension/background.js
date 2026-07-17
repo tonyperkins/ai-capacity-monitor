@@ -171,6 +171,11 @@ function parseVisibleMetrics() {
     const candidates = [...text.slice(Math.max(0, index - 120), index).matchAll(currencyToken)];
     return candidates.at(-1)?.[0] ?? null;
   };
+  const kiloBalance = () => {
+    const label = [...document.querySelectorAll("*")].find((element) => element.children.length === 0 && element.textContent?.trim() === "Remaining Credits");
+    const card = label?.parentElement?.parentElement;
+    return card?.innerText.match(currencyToken)?.[0] ?? null;
+  };
   const percentAfter = (label) => {
     const index = text.toLowerCase().lastIndexOf(label.toLowerCase());
     if (index < 0) return null;
@@ -188,7 +193,7 @@ function parseVisibleMetrics() {
   const out = [];
   const addCredit = (key, provider, label, value) => value && out.push({ key, provider, label, kind: "credit", value: money(value) * 100, display: moneyDisplay(value) });
   const addQuota = (key, provider, label, remaining, resetText) => Number.isFinite(remaining) && out.push({ key, provider, label, kind: "quota", value: remaining, display: `${remaining}%`, resetText });
-  if (location.hostname === "app.kilo.ai") addCredit("kilo-credit", "Kilo Balance", "Remaining credits", moneyAfter("Remaining Credits"));
+  if (location.hostname === "app.kilo.ai") addCredit("kilo-credit", "Kilo Balance", "Remaining credits", kiloBalance());
   if (location.hostname === "platform.openai.com") addCredit("openai-api-credit", "OpenAI API Balance", "Prepaid API credit", moneyAfter("Credit balance"));
   if (location.hostname === "platform.claude.com") addCredit("claude-api-credit", "Claude API Balance", "Organization credits", moneyAfter("Organization credits"));
   if (location.hostname === "chatgpt.com") addQuota("chatgpt-weekly", "ChatGPT Plus", "Weekly usage", percentAfter("Weekly usage limit"), text.match(/Resets[^\n]+/)?.[0]);
