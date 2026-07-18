@@ -25,3 +25,22 @@ and every consumer (bridge, dashboard, user webhooks) validates against it.
   integer count of credits.
 - `kind: "quota"` with `unit: "percent"`: integer 0–100, always
   **percent remaining** regardless of how the source page phrases it.
+
+## Collection states and diagnostics
+
+New snapshots include one diagnostic per metric attempted in that collection
+pass. A metric with a known value also carries the same detailed `readState`
+field. The older `status` field remains `verified`/`unverified` for v1
+consumer compatibility.
+
+- `validated` — a fresh reading passed the adapter's checks.
+- `suspicious-held` — a surprising replacement is being confirmed; the prior
+  verified value remains visible.
+- `retained-prior` — the current read failed, so a prior verified value remains
+  visible.
+- `unauthenticated` — the provider page appears to require sign-in.
+- `failed` — no reading is available and there is no prior verified value.
+
+`errorCode` is a stable, safe machine-readable reason such as
+`sign-in-required`, `page-still-loading`, `metric-not-found`, or
+`collection-deadline`. It never contains provider page text.

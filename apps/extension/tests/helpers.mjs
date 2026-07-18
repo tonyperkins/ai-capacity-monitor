@@ -6,7 +6,7 @@ import { readFile } from "node:fs/promises";
 // changing how the extension loads at runtime.
 export async function loadProviders() {
   const source = await readFile(new URL("../providers.js", import.meta.url), "utf8");
-  const factory = new Function(`${source}\nreturn { PROVIDERS, readProviderMetrics };`);
+  const factory = new Function(`${source}\nreturn { PROVIDERS, inspectProviderPage, readProviderMetrics };`);
   return factory();
 }
 
@@ -36,8 +36,8 @@ function collectElements(root, out = []) {
 // Sets the globals readProviderMetrics reads. `dom`, if given, is an element
 // tree used only by the labeled-card-money read type (querySelectorAll);
 // omitting it exercises the plain-text parsing every other read type uses.
-export function setPage({ hostname, text, dom = null }) {
-  globalThis.location = { hostname };
+export function setPage({ hostname, href = `https://${hostname}/`, text, dom = null }) {
+  globalThis.location = { hostname, href };
   globalThis.document = {
     body: { innerText: text },
     querySelectorAll: (selector) => (selector === "*" && dom ? collectElements(dom) : []),

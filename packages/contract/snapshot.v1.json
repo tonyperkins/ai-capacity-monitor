@@ -28,8 +28,11 @@
           "unit": { "enum": ["usd", "percent", "count"] },
           "status": {
             "enum": ["verified", "unverified"],
-            "description": "\"verified\" is a freshly confirmed reading. \"unverified\" is reserved for a reading a consumer should not treat as authoritative yet; producers currently only ever send \"verified\" metrics — an unconfirmed reading is held back and not included in the snapshot at all."
+            "description": "v1 compatibility status. New producers set verified only for a fresh validated reading; consumers needing the detailed outcome use readState."
           },
+          "readState": { "enum": ["validated", "suspicious-held", "retained-prior", "unauthenticated", "failed"], "description": "Detailed per-metric collection outcome. New producers always include it." },
+          "attemptedAt": { "type": "string", "format": "date-time", "description": "When the extension last attempted to read this metric." },
+          "errorCode": { "type": ["string", "null"], "maxLength": 80, "description": "Stable, safe diagnostic code; never raw provider page text." },
           "resetAt": { "type": "string", "format": "date-time" },
           "collectedAt": {
             "type": "string",
@@ -46,6 +49,21 @@
             "maxLength": 160,
             "description": "Optional raw provider-page reset phrase, e.g. \"Resets in 3 hr 52 min\". Prefer resetAt when present."
           }
+        }
+      }
+    },
+    "diagnostics": {
+      "type": "array",
+      "maxItems": 24,
+      "items": {
+        "type": "object",
+        "required": ["key", "providerId", "state", "attemptedAt"],
+        "properties": {
+          "key": { "type": "string", "maxLength": 80 },
+          "providerId": { "type": "string", "maxLength": 80 },
+          "state": { "enum": ["validated", "suspicious-held", "retained-prior", "unauthenticated", "failed"] },
+          "errorCode": { "type": ["string", "null"], "maxLength": 80 },
+          "attemptedAt": { "type": "string", "format": "date-time" }
         }
       }
     },
