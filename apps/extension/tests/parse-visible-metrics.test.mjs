@@ -106,6 +106,13 @@ test("Kilo balance falls through label variants via the text fallback when no DO
   assert.equal(metric.display, "$1.50");
 });
 
+test("Kilo balance recognizes the current credits-page label", () => {
+  setPage({ hostname: "app.kilo.ai", text: "Credits\nYour credit balance\n$2.78\navailable" });
+  const { "kilo-credit": metric } = byKey(parse());
+  assert.equal(metric.value, 278);
+  assert.equal(metric.display, "$2.78");
+});
+
 test("Kilo balance is omitted (not fabricated as $0) when no label has a nearby value", () => {
   setPage({
     hostname: "app.kilo.ai",

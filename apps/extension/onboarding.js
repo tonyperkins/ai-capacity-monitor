@@ -42,8 +42,8 @@ async function enableAndOpenProvider() {
   renderCollectionPrompt();
 }
 
-function renderCollectionPrompt(message = "Sign in on the provider page if needed, then check the displayed reading.") {
-  $("screen").innerHTML = `<p class="eyebrow">STEP 3 OF 3</p><h1>Check your first reading.</h1><p class="lead">${message}</p><div class="notice">The provider page opened in a new tab. Sign-in happens there; Capacity Monitor never displays or asks for credentials.</div><div class="actions"><button id="check" type="button">Check ${selectedProvider.name} now</button><button id="back" class="subtle" type="button">Choose another provider</button></div>`;
+function renderCollectionPrompt(message = "Return to this setup tab when you are finished, then check the displayed reading.") {
+  $("screen").innerHTML = `<p class="eyebrow">STEP 3 OF 3</p><h1>Check your first reading.</h1><p class="lead">${message}</p><div class="notice"><strong>What to do next:</strong> the ${selectedProvider.name} page is open in another tab. Sign in there if needed, leave that tab open, then return here and select <strong>Check ${selectedProvider.name} now</strong>. The check may reload that provider page in the background.</div><div class="actions"><button id="check" type="button">Check ${selectedProvider.name} now</button><button id="back" class="subtle" type="button">Choose another provider</button></div>`;
   $("check").addEventListener("click", collectProvider);
   $("back").addEventListener("click", renderProviderList);
 }
@@ -52,20 +52,21 @@ async function collectProvider() {
   const check = $("check");
   check.disabled = true;
   check.textContent = "Checking…";
+  $("screen").insertAdjacentHTML("beforeend", `<p id="checking" class="notice">Checking ${selectedProvider.name} now. Stay on this tab; a result will appear here.</p>`);
   const result = await chrome.runtime.sendMessage({ type: "collect-provider", key: selectedProvider.metrics[0].key });
   const diagnostics = result?.diagnostics?.filter((entry) => entry.providerId === selectedProvider.id) ?? [];
-  if (!result?.ok || diagnostics.some((entry) => entry.state === "unauthenticated")) return renderCollectionPrompt("Sign in on the provider page first, then try again. We only detect that a sign-in is needed; we never see your credentials.");
-  if (diagnostics.some((entry) => entry.state !== "validated")) return renderCollectionPrompt("The reading is not ready yet. Let the provider page finish loading, then try again.");
+  if (!result?.ok || diagnostics.some((entry) => entry.state === "unauthenticated")) return renderCollectionPrompt(`We could not read ${selectedProvider.name} yet. Sign in on its open page, return here, and try again. We only detect that a sign-in is needed; we never see your credentials.`);
+  if (diagnostics.some((entry) => entry.state !== "validated")) return renderCollectionPrompt(`We could not read a value yet. Let ${selectedProvider.name} finish loading, keep its tab open, then try again.`);
   const { latestMetrics = [] } = await chrome.storage.local.get("latestMetrics");
   const readings = latestMetrics.filter((metric) => selectedProvider.metrics.some((definition) => definition.key === metric.key));
-  if (!readings.length) return renderCollectionPrompt("No readable value was found yet. Check that the provider page is signed in and fully loaded, then try again.");
+  if (!readings.length) return renderCollectionPrompt(`We could not find a displayed value yet. Check that ${selectedProvider.name} is signed in and fully loaded, then try again.`);
   renderConfirmation(readings);
 }
 
 function renderConfirmation(readings) {
   $("screen").innerHTML = `<p class="eyebrow">FIRST READING</p><h1>Does this look right?</h1><p class="lead">We found the following displayed value${readings.length === 1 ? "" : "s"} from ${selectedProvider.name}.</p><div class="result">${readings.map((metric) => `<strong>${metric.provider}: ${metric.display}</strong><span>${metric.label}</span>`).join("")}</div><div class="actions"><button id="correct" type="button">Yes, keep it</button><button id="retry" class="subtle" type="button">Try again</button><button id="another" class="subtle" type="button">Set up another provider</button></div>`;
   $("correct").addEventListener("click", completeOnboarding);
-  $("retry").addEventListener("click", () => renderCollectionPrompt("We will reload the provider page and check again."));
+  $("retry").addEventListener("click", () => renderCollectionPrompt(`Return to the open ${selectedProvider.name} tab if needed, then try again.`));
   $("another").addEventListener("click", renderProviderList);
 }
 
