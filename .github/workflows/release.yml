@@ -16,7 +16,7 @@ jobs:
         with:
           node-version: 22
       - name: Run extension test suite
-        run: node --test tests/
+        run: node --test
         working-directory: apps/extension
       - name: Verify tag matches manifest version
         run: |

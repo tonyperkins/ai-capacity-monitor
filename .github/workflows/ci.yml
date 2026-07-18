@@ -27,7 +27,7 @@ jobs:
       - name: Validate snapshot contract is well-formed JSON
         run: node -e "JSON.parse(require('fs').readFileSync('packages/contract/snapshot.v1.json','utf8')); console.log('snapshot.v1.json OK')"
       - name: Run extension test suite
-        run: node --test tests/
+        run: node --test
         working-directory: apps/extension
       - name: Package extension and verify determinism
         run: |
