@@ -160,3 +160,17 @@ test("Gemini Pro usage limits (current usage and weekly, both 'used' phrasing)",
   assert.equal(results["gemini-weekly"].value, 99);
   assert.equal(results["gemini-weekly"].resetText, "Resets Jul 21 at 1:59 PM");
 });
+
+test("Google One AI credits (a bare count, not a dollar balance)", () => {
+  // Real text captured from one.google.com/ai/activity. Note "AI credits"
+  // appears several times in surrounding prose before the actual label+value
+  // pair — this locks in that the parser still lands on the right number.
+  setPage({
+    hostname: "one.google.com",
+    text: "One\n\t\nSettings\nAI credits activity\nAI credits let you keep using AI models and features when you hit a plan usage limit.\nLearn more about how AI credits work\nAI credits\n2,228\nadd\nAdd\ninfo\nAI credits included with your plan have been replaced by product-based usage limits\nLearn more\nYour recent activity",
+  });
+  const { "google-ai-credit": metric } = byKey(parseVisibleMetrics());
+  assert.equal(metric.value, 2228);
+  assert.equal(metric.display, "2,228 credits");
+  assert.equal(metric.kind, "credit");
+});

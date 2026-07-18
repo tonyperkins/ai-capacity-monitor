@@ -1,4 +1,4 @@
-const balanceOrder=["kilo-credit","openai-api-credit","claude-usage-credit","claude-api-credit","xai-credit"];
+const balanceOrder=["kilo-credit","openai-api-credit","claude-usage-credit","claude-api-credit","xai-credit","google-ai-credit"];
 const quotaOrder=["chatgpt-weekly","claude-session","claude-weekly","claude-fable","claude-usage-cap","gemini-current-usage","gemini-weekly"];
 const $=id=>document.getElementById(id);
 let collectedAt=null;

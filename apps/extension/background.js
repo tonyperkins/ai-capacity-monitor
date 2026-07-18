@@ -10,6 +10,7 @@ const REQUIRED_TABS = [
   { key: "claude-usage-credit", keys: ["claude-usage-credit", "claude-session", "claude-weekly", "claude-fable", "claude-usage-cap"], url: "https://claude.ai/new#settings/usage", match: "claude.ai/new#settings/usage" },
   { key: "xai-credit", url: "https://console.x.ai/", match: "console.x.ai" },
   { key: "gemini-current-usage", keys: ["gemini-current-usage", "gemini-weekly"], url: "https://gemini.google.com/usage", match: "gemini.google.com/usage" },
+  { key: "google-ai-credit", url: "https://one.google.com/ai/activity", match: "one.google.com/ai/activity" },
 ];
 let activeCollection = null;
 
@@ -215,6 +216,10 @@ function parseVisibleMetrics() {
     const match = text.match(new RegExp(`${label}[\\s\\S]{0,160}?((?:-\\s*\\$\\s*|\\$\\s*-?\\s*)[0-9,.]+|\\(\\s*\\$\\s*[0-9,.]+\\s*\\))`, "i"));
     return match ? match[1] : null;
   };
+  const countAfter = (label) => {
+    const match = text.match(new RegExp(`${label}[\\s\\S]{0,160}?(\\d{1,3}(?:,\\d{3})*)`, "i"));
+    return match ? Number(match[1].replace(/,/g, "")) : null;
+  };
   const moneyBefore = (label) => {
     const index = text.toLowerCase().lastIndexOf(label.toLowerCase());
     if (index < 0) return null;
@@ -261,6 +266,7 @@ function parseVisibleMetrics() {
   const out = [];
   const addCredit = (key, provider, label, value) => value && out.push({ key, provider, label, kind: "credit", value: money(value) * 100, display: moneyDisplay(value) });
   const addQuota = (key, provider, label, remaining, resetText) => Number.isFinite(remaining) && out.push({ key, provider, label, kind: "quota", value: remaining, display: `${remaining}%`, resetText });
+  const addCount = (key, provider, label, value) => Number.isFinite(value) && out.push({ key, provider, label, kind: "credit", value, display: `${value.toLocaleString()} credits` });
   if (location.hostname === "app.kilo.ai") addCredit("kilo-credit", "Kilo Balance", "Remaining credits", kiloBalance());
   if (location.hostname === "platform.openai.com") addCredit("openai-api-credit", "OpenAI API Balance", "Prepaid API credit", moneyAfter("Credit balance"));
   if (location.hostname === "platform.claude.com") addCredit("claude-api-credit", "Claude API Balance", "Organization credits", moneyAfter("Organization credits"));
@@ -277,5 +283,6 @@ function parseVisibleMetrics() {
     addQuota("gemini-current-usage", "Gemini Pro", "Current usage", remainingPercentAfter("Current usage"), resetAfter("Current usage"));
     addQuota("gemini-weekly", "Gemini Pro", "Weekly limit", remainingPercentAfter("Weekly limit"), resetAfter("Weekly limit"));
   }
+  if (location.hostname === "one.google.com") addCount("google-ai-credit", "Google AI Credits", "AI credits", countAfter("AI credits"));
   return out;
 }
