@@ -1,34 +1,52 @@
 # AI Capacity Monitor
 
-A standalone Chrome extension that reads user-visible AI credit balances and subscription limits from authenticated provider tabs. It remains useful locally through its toolbar popup and can optionally publish a normalized snapshot to a user-chosen service.
+AI Capacity Monitor is a Chrome extension for keeping the displayed credit
+balances and subscription limits you care about in one local popup. It reads
+only the provider pages you explicitly enable, remains useful without any
+service account, and can optionally publish a normalized snapshot to a
+destination you choose.
 
-## Project layout
+## What it does
 
-- `apps/extension` — Manifest V3 extension, provider readers, popup, local snapshot.
-- `apps/local-bridge` — optional local HTTP receiver for forwarding snapshots.
-- `apps/dashboard` — optional private Sites dashboard and durable history.
-- `packages/contract` — versioned publish contract and provider metric registry.
-- `docs` — architecture and service-author guidance.
+- Reads visible balances and plan-limit readings from selected, authenticated
+  provider pages.
+- Keeps the latest safe reading in the local browser profile, with explicit
+  diagnostics when a value is stale, suspicious, unavailable, or needs sign-in.
+- Requests each provider's site access only when you enable it.
+- Optionally posts derived snapshots to a local bridge or HTTPS webhook after
+  you review and acknowledge the exact destination.
 
-## Security model
+It never asks for credentials and does not store or publish raw provider-page
+text, browser cookies, or account identifiers.
 
-The extension never publishes raw page text, browser cookies, API tokens, or account identifiers. Provider site access is opt-in: a fresh install requests no provider access, and Settings requests each provider's exact origin only after the user enables it. Publishing is also opt-in and disabled by default: readings stay on the device until the user configures a destination in Settings — either the local bridge (loopback only, authenticated with a per-install secret) or a direct HTTPS webhook (HTTPS required except toward loopback; optional Authorization header). Every destination receives the same versioned `snapshot.v1.json`-conformant payload; failed deliveries queue with bounded exponential-backoff retry and never affect local readings. Provider collection itself is also opt-in per provider.
+## Install
 
-See the [privacy policy](docs/privacy-policy.md) for the exact local-storage,
-publishing, and deletion behavior. Draft Chrome Web Store permission
-justifications live in [docs/web-store-permissions.md](docs/web-store-permissions.md).
+For local or pre-Store testing, follow the [install guide](docs/install.md).
+Guided setup walks through one provider at a time and confirms the first
+reading. The popup works on its own; the local bridge and dashboard are
+optional advanced components.
+
+## Supported providers
+
+See the complete [support matrix](docs/support-matrix.md) for the exact page,
+metric, verified plan surface, and known limitations for Kilo, OpenAI,
+ChatGPT, Claude, xAI, Gemini, and Google One.
+
+## Privacy and security
+
+Read the [privacy policy](docs/privacy-policy.md) for the precise local
+storage, optional publishing, and deletion behavior. Use **Delete all local
+data** in Settings to clear stored readings, settings, destinations, queues,
+and secrets. See [SECURITY.md](SECURITY.md) for private vulnerability reports.
 
 ## Development
 
-- **Test:** `cd apps/extension && npm test` (plain `node --test tests/`, no dependencies).
-- **Package:** `python3 scripts/package-extension.py` writes a deterministic Web Store ZIP to `dist/`; the same commit always produces a byte-identical archive.
-- **CI:** GitHub Actions runs the test suite, syntax checks, contract validation, and a packaging determinism check on every push and pull request to `main`.
-- **Release:** bump `version` in `apps/extension/manifest.json`, move the `Unreleased` notes to a new heading in `CHANGELOG.md`, commit, then tag and push `vX.Y.Z` (must match the manifest version). The Release workflow re-runs the tests, packages the extension, and publishes a GitHub release with the ZIP attached.
-- **Contract:** `snapshot.v1.json` is additive-only; breaking changes require a `snapshot.v2.json`. See [packages/contract/README.md](packages/contract/README.md).
+- Extension tests: `npm test --prefix apps/extension`
+- Package: `python3 scripts/package-extension.py`
+- Contribution guide: [CONTRIBUTING.md](CONTRIBUTING.md)
+- Troubleshooting: [docs/troubleshooting.md](docs/troubleshooting.md)
+- Chrome Web Store permission draft: [docs/web-store-permissions.md](docs/web-store-permissions.md)
 
-## Product roadmap
+## License
 
-The current project is a working personal prototype. The proposed path to a
-shareable, extension-first product—including provider profile updates, generic
-webhook publishing, security, testing, and release operations—is documented in
-[docs/productization-plan.md](docs/productization-plan.md).
+Apache-2.0. See [LICENSE](LICENSE).

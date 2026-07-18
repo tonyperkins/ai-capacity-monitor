@@ -1,0 +1,19 @@
+name: Provider page changed
+description: Report a supported provider page that no longer yields its listed metric.
+body:
+  - type: dropdown
+    attributes:
+      label: Provider
+      options: [Kilo, OpenAI Platform, ChatGPT, Claude.ai, Claude Platform, xAI Console, Gemini, Google One]
+    validations:
+      required: true
+  - type: input
+    attributes:
+      label: Page path
+      description: Path only, without account IDs or query parameters.
+  - type: textarea
+    attributes:
+      label: Safe diagnostic code and page-change summary
+      description: Do not include account values, credentials, cookies, or full page text.
+    validations:
+      required: true
