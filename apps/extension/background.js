@@ -6,11 +6,14 @@ const SUSPICION_MAX_AGE_MS = 10 * 60 * 1000;
 const SUSPICION_RETRY_DELAY_MS = 30 * 1000;
 let activeCollection = null;
 let activeDrain = null;
+let clearingLocalData = false;
 
 chrome.runtime.onInstalled.addListener((details) => initializeSchedule(details));
 chrome.runtime.onStartup.addListener(syncSchedule);
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== "local") return;
+  if (clearingLocalData) return;
+  if (Object.keys(changes).length && Object.values(changes).every((change) => change.newValue === undefined)) return;
   if (changes.autoCollectionEnabled || changes.collectionIntervalMinutes) syncSchedule();
   if (changes.enabledProviders) pruneDisabledMetrics(changes.enabledProviders.newValue ?? []);
   if (changes.publishMode || changes.bridgeUrl || changes.webhookUrl) chrome.storage.local.set({ publishRetryCount: 0 }).then(() => drainPublishQueue());
@@ -28,6 +31,10 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   return permitted.length ? collect({ permitted, missing: [] }) : undefined;
 });
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message?.type === "delete-local-data") {
+    deleteLocalData().then(sendResponse).catch((error) => sendResponse({ ok: false, error: String(error) }));
+    return true;
+  }
   if (message?.type === "focus-provider") {
     focusProvider(message.key).then(sendResponse).catch((error) => sendResponse({ ok: false, error: String(error) }));
     return true;
@@ -43,6 +50,17 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   })().then(sendResponse).catch((error) => sendResponse({ ok: false, error: String(error) }));
   return true;
 });
+
+async function deleteLocalData() {
+  clearingLocalData = true;
+  try {
+    await Promise.all([chrome.alarms.clear("collect"), chrome.alarms.clear("collect-retry"), chrome.alarms.clear("publish-retry")]);
+    await chrome.storage.local.clear();
+    return { ok: true };
+  } finally {
+    clearingLocalData = false;
+  }
+}
 
 async function getEnabledProviders() {
   const { enabledProviders = [] } = await chrome.storage.local.get("enabledProviders");
@@ -214,7 +232,7 @@ function drainPublishQueue() {
 }
 
 async function runDrain() {
-  const config = await chrome.storage.local.get(["publishMode", "bridgeUrl", "bridgeSecret", "webhookUrl", "webhookAuthValue", "publishQueue", "publishRetryCount"]);
+  const config = await chrome.storage.local.get(["publishMode", "bridgeUrl", "bridgeSecret", "webhookUrl", "webhookAuthValue", "publishQueue", "publishRetryCount", "publishDisclosureKey"]);
   const mode = config.publishMode ?? "disabled";
   if (mode === "disabled") {
     await chrome.alarms.clear("publish-retry");
@@ -224,6 +242,7 @@ async function runDrain() {
   const url = mode === "bridge" ? (config.bridgeUrl || "http://127.0.0.1:8787/collect") : config.webhookUrl;
   const check = validateDestinationUrl(mode, url);
   if (!check.ok) return setPublishStatus({ state: "failed", detail: check.error });
+  if (config.publishDisclosureKey !== `${mode}:${url}`) return setPublishStatus({ state: "failed", detail: "publishing disclosure needs acknowledgement in Settings" });
   const destinationOrigin = originPatternForUrl(url);
   if (!destinationOrigin || !await chrome.permissions.contains({ origins: [destinationOrigin] })) return setPublishStatus({ state: "failed", detail: "permission needed for publishing destination" });
   const headers = { "content-type": "application/json" };

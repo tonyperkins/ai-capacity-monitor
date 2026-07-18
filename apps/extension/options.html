@@ -3,7 +3,7 @@
 <body><main>
 <p class="eyebrow">CAPACITY MONITOR</p>
 <h1>Collection settings</h1>
-<p class="intro">Choose which providers are read, whether the extension collects in the background, and where snapshots are published.</p>
+<p class="intro">Choose which providers are read, whether the extension collects in the background, and where snapshots are published. <a href="https://github.com/tonyperkins/ai-capacity-monitor/blob/main/docs/privacy-policy.md" target="_blank" rel="noreferrer">Privacy policy</a></p>
 <section><p class="section-label">Providers</p><div id="providers" class="providers"></div><button id="restart-onboarding" class="secondary" type="button">Run guided setup</button><p class="hint">Only enabled providers are read. Turning one on asks Chrome for access to that provider's site; disabling it stops collection and removes its stored readings. You can separately remove retained site access.</p></section>
 <section><p class="section-label">Collection</p><label class="toggle"><input id="auto-updates" type="checkbox"> <span>Automatic updates</span></label><label class="interval">Collection interval <input id="interval" type="number" min="1" max="1440" step="1" inputmode="numeric"> <span>minutes</span></label><p class="hint">Manual collection and the individual card refresh buttons remain available when automatic updates are paused.</p></section>
 <section><p class="section-label">Diagnostics</p><div id="diagnostics" class="diagnostics" aria-live="polite"></div><p class="hint">Shows the last safe collection outcome for each enabled provider. Diagnostic codes never include page text or account information.</p></section>
@@ -16,7 +16,9 @@
 <label class="field">Webhook URL <input id="webhook-url" type="text" autocomplete="off" placeholder="https://example.com/capacity"></label>
 <label class="field">Webhook Authorization header <input id="webhook-auth" type="password" autocomplete="off" placeholder="Bearer …"></label>
 <p class="hint">When enabled, each collection posts the snapshot contract payload (validated metrics and diagnostics only — never page content) to the chosen destination. Failed deliveries queue and retry with backoff; local readings are never affected. The bridge must be a loopback address; a webhook must use HTTPS.</p>
+<div class="publish-disclosure"><strong>Before publishing</strong><p id="publish-disclosure-text">Choose a destination to review what it will receive.</p><label class="toggle"><input id="publish-ack" type="checkbox"> <span>I understand and authorize this destination to receive these derived readings.</span></label></div>
 <p id="publish-error" class="save-error" aria-live="polite"></p>
 </section>
+<section><p class="section-label">Local data</p><p class="hint">Delete all local Capacity Monitor data from this browser profile: readings, diagnostics, history queue, preferences, configured destinations, and saved secrets. This does not remove optional site permissions; remove those from the provider controls above.</p><button id="delete-local-data" class="danger" type="button">Delete all local data</button></section>
 <footer><span id="status" aria-live="polite"></span><button id="save" type="button">Save settings</button></footer>
 </main><script src="providers.js"></script><script src="publishing.js"></script><script src="permissions.js"></script><script src="options.js"></script></body></html>
