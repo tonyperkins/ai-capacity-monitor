@@ -1,17 +1,9 @@
+importScripts("providers.js");
+
 const ENDPOINT = "http://127.0.0.1:8787/collect";
 const SUSPICION_CONFIRMATIONS_REQUIRED = 2;
 const SUSPICION_MAX_AGE_MS = 10 * 60 * 1000;
 const SUSPICION_RETRY_DELAY_MS = 30 * 1000;
-const REQUIRED_TABS = [
-  { key: "kilo-credit", url: "https://app.kilo.ai/credits", match: "app.kilo.ai/credits" },
-  { key: "openai-api-credit", url: "https://platform.openai.com/home", match: "platform.openai.com/home" },
-  { key: "claude-api-credit", url: "https://platform.claude.com/dashboard", match: "platform.claude.com/dashboard" },
-  { key: "chatgpt-weekly", url: "https://chatgpt.com/#settings/Usage", match: "#settings/Usage" },
-  { key: "claude-usage-credit", keys: ["claude-usage-credit", "claude-session", "claude-weekly", "claude-fable", "claude-usage-cap"], url: "https://claude.ai/new#settings/usage", match: "claude.ai/new#settings/usage" },
-  { key: "xai-credit", url: "https://console.x.ai/", match: "console.x.ai" },
-  { key: "gemini-current-usage", keys: ["gemini-current-usage", "gemini-weekly"], url: "https://gemini.google.com/usage", match: "gemini.google.com/usage" },
-  { key: "google-ai-credit", url: "https://one.google.com/ai/activity", match: "one.google.com/ai/activity" },
-];
 let activeCollection = null;
 
 chrome.runtime.onInstalled.addListener(initializeSchedule);
@@ -23,10 +15,10 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name !== "collect" && alarm.name !== "collect-retry") return;
   const { autoCollectionEnabled = true } = await chrome.storage.local.get("autoCollectionEnabled");
   if (!autoCollectionEnabled) return;
-  if (alarm.name === "collect") return collect(REQUIRED_TABS);
+  if (alarm.name === "collect") return collect(PROVIDERS);
   const { pendingSuspicion = {} } = await chrome.storage.local.get("pendingSuspicion");
   const pendingKeys = new Set(Object.keys(pendingSuspicion));
-  const targets = REQUIRED_TABS.filter((target) => (target.keys ?? [target.key]).some((key) => pendingKeys.has(key)));
+  const targets = PROVIDERS.filter((target) => target.metrics.some((metric) => pendingKeys.has(metric.key)));
   if (targets.length) collect(targets);
 });
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
@@ -34,14 +26,14 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     focusProvider(message.key).then((result) => sendResponse(result)).catch((error) => sendResponse({ ok: false, error: String(error) }));
     return true;
   }
-  const targets = message?.type === "collect" ? REQUIRED_TABS : message?.type === "collect-provider" ? REQUIRED_TABS.filter((target) => target.key === message.key) : [];
+  const targets = message?.type === "collect" ? PROVIDERS : message?.type === "collect-provider" ? PROVIDERS.filter((target) => target.metrics.some((metric) => metric.key === message.key)) : [];
   if (!targets.length) return;
   collect(targets).then((result) => sendResponse(result)).catch((error) => sendResponse({ ok: false, error: String(error) }));
   return true;
 });
 
 async function focusProvider(key) {
-  const target = REQUIRED_TABS.find((candidate) => candidate.key === key || candidate.keys?.includes(key));
+  const target = PROVIDERS.find((candidate) => candidate.metrics.some((metric) => metric.key === key));
   if (!target) return { ok: false, error: "No provider page is configured for this item." };
   const candidates = (await chrome.tabs.query({})).filter((tab) => tab.url?.includes(target.match));
   if (candidates.length) {
@@ -70,7 +62,7 @@ async function syncSchedule() {
   if (!autoCollectionEnabled) await chrome.alarms.clear("collect-retry");
 }
 
-function collect(targets = REQUIRED_TABS) {
+function collect(targets = PROVIDERS) {
   if (activeCollection) return activeCollection;
   activeCollection = runCollection(targets).finally(() => { activeCollection = null; });
   return activeCollection;
@@ -80,8 +72,8 @@ async function runCollection(targets) {
   const { tabs, opened } = await ensureDashboardTabs(targets);
   await refreshTabs(tabs, opened);
   await waitForTabsReady(tabs);
-  const parsedMetrics = await readWithRetries(tabs, targets.map((target) => target.key));
-  const targetKeys = new Set(targets.flatMap((target) => target.keys ?? [target.key]));
+  const parsedMetrics = await readWithRetries(tabs, targets);
+  const targetKeys = new Set(targets.flatMap((target) => target.metrics.map((metric) => metric.key)));
   const metrics = parsedMetrics.filter((metric) => targetKeys.has(metric.key));
   const previous = await chrome.storage.local.get("latestMetrics");
   const priorByKey = Object.fromEntries((previous.latestMetrics ?? []).map((metric) => [metric.key, metric]));
@@ -153,7 +145,7 @@ async function reconcileMetrics(metrics, priorByKey) {
   return { verifiedMetrics, heldMetrics };
 }
 
-async function ensureDashboardTabs(targets = REQUIRED_TABS) {
+async function ensureDashboardTabs(targets = PROVIDERS) {
   const openTabs = await chrome.tabs.query({});
   const tabs = [];
   const opened = [];
@@ -191,14 +183,16 @@ async function closeTabs(tabIds) {
   try { await chrome.tabs.remove(tabIds); } catch { /* Tabs may have been closed manually. */ }
 }
 
-async function readWithRetries(tabs, requiredKeys) {
+async function readWithRetries(tabs, targets) {
   const maxAttempts = 10;
+  const requiredKeys = targets.map((target) => target.metrics[0].key);
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-    const results = await Promise.all(tabs.map(async (tab) => {
+    const results = await Promise.all(tabs.map(async (tab, index) => {
+      const spec = { hostname: targets[index].hostname, metrics: targets[index].metrics };
       try {
         const current = await chrome.tabs.get(tab.id);
         if (current.status !== "complete") return [];
-        const [{ result }] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: parseVisibleMetrics });
+        const [{ result }] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: readProviderMetrics, args: [spec] });
         return result || [];
       } catch { return []; }
     }));
@@ -209,80 +203,3 @@ async function readWithRetries(tabs, requiredKeys) {
   return [];
 }
 
-function parseVisibleMetrics() {
-  const text = document.body.innerText;
-  const currencyToken = /(?:-\s*\$\s*|\$\s*-?\s*)[0-9,.]+|\(\s*\$\s*[0-9,.]+\s*\)/g;
-  const moneyAfter = (label) => {
-    const match = text.match(new RegExp(`${label}[\\s\\S]{0,160}?((?:-\\s*\\$\\s*|\\$\\s*-?\\s*)[0-9,.]+|\\(\\s*\\$\\s*[0-9,.]+\\s*\\))`, "i"));
-    return match ? match[1] : null;
-  };
-  const countAfter = (label) => {
-    const match = text.match(new RegExp(`${label}[\\s\\S]{0,160}?(\\d{1,3}(?:,\\d{3})*)`, "i"));
-    return match ? Number(match[1].replace(/,/g, "")) : null;
-  };
-  const moneyBefore = (label) => {
-    const index = text.toLowerCase().lastIndexOf(label.toLowerCase());
-    if (index < 0) return null;
-    const candidates = [...text.slice(Math.max(0, index - 120), index).matchAll(currencyToken)];
-    return candidates.at(-1)?.[0] ?? null;
-  };
-  const kiloBalance = () => {
-    const labels = ["Remaining Credits", "Available Credits", "Credit Balance", "Current Balance"];
-    for (const labelText of labels) {
-      const label = [...document.querySelectorAll("*")].find((element) => element.children.length === 0 && element.textContent?.trim().toLowerCase() === labelText.toLowerCase());
-      const card = label?.parentElement?.parentElement;
-      const cardAmount = card?.innerText.match(currencyToken)?.[0];
-      if (cardAmount) return cardAmount;
-      const nearbyAmount = moneyAfter(labelText);
-      if (nearbyAmount) return nearbyAmount;
-    }
-    return null;
-  };
-  const quotaWindow = (label) => {
-    const lowerText = text.toLowerCase();
-    const lowerLabel = label.toLowerCase();
-    const indexes = [];
-    for (let index = lowerText.indexOf(lowerLabel); index >= 0; index = lowerText.indexOf(lowerLabel, index + lowerLabel.length)) indexes.push(index);
-    return indexes.reverse().map((index) => text.slice(index, index + 120)).find((window) => /\d+%\s*(?:remaining|used)/i.test(window));
-  };
-  const remainingPercentAfter = (label) => {
-    const match = quotaWindow(label)?.match(/(\d+)%\s*(remaining|used)/i);
-    if (!match) return null;
-    const amount = Number(match[1]);
-    return /used/i.test(match[2]) ? 100 - amount : amount;
-  };
-  const resetAfter = (label) => {
-    const window = quotaWindow(label);
-    return window?.match(/Resets[^\n]+/i)?.[0];
-  };
-  const money = (value) => {
-    const normalized = value.replace(/[\s$,()]/g, "");
-    return Number(value.includes("(") ? `-${normalized}` : normalized);
-  };
-  const moneyDisplay = (value) => {
-    const amount = money(value);
-    return `${amount < 0 ? "-" : ""}$${Math.abs(amount).toFixed(2)}`;
-  };
-  const out = [];
-  const addCredit = (key, provider, label, value) => value && out.push({ key, provider, label, kind: "credit", value: money(value) * 100, display: moneyDisplay(value) });
-  const addQuota = (key, provider, label, remaining, resetText) => Number.isFinite(remaining) && out.push({ key, provider, label, kind: "quota", value: remaining, display: `${remaining}%`, resetText });
-  const addCount = (key, provider, label, value) => Number.isFinite(value) && out.push({ key, provider, label, kind: "credit", value, display: `${value.toLocaleString()} credits` });
-  if (location.hostname === "app.kilo.ai") addCredit("kilo-credit", "Kilo Balance", "Remaining credits", kiloBalance());
-  if (location.hostname === "platform.openai.com") addCredit("openai-api-credit", "OpenAI API Balance", "Prepaid API credit", moneyAfter("Credit balance"));
-  if (location.hostname === "platform.claude.com") addCredit("claude-api-credit", "Claude API Balance", "Organization credits", moneyAfter("Organization credits"));
-  if (location.hostname === "chatgpt.com") addQuota("chatgpt-weekly", "ChatGPT Plus", "Weekly usage", remainingPercentAfter("Weekly usage limit"), resetAfter("Weekly usage limit"));
-  if (location.hostname === "claude.ai") {
-    addQuota("claude-session", "Claude Pro", "Current session", remainingPercentAfter("Current session"), resetAfter("Current session"));
-    addQuota("claude-weekly", "Claude Pro", "Weekly · all models", remainingPercentAfter("All models"), resetAfter("All models"));
-    addQuota("claude-fable", "Claude Pro", "Weekly · Fable", remainingPercentAfter("Fable"), resetAfter("Fable"));
-    addCredit("claude-usage-credit", "Claude.ai Balance", "Usage-credit balance", moneyBefore("Current balance") ?? moneyAfter("Current balance"));
-    addQuota("claude-usage-cap", "Claude usage", "Monthly spending cap", remainingPercentAfter("Usage credits"), resetAfter("Usage credits"));
-  }
-  if (location.hostname === "console.x.ai") addCredit("xai-credit", "xAI Balance", "Credits remaining", moneyAfter("Credits remaining"));
-  if (location.hostname === "gemini.google.com") {
-    addQuota("gemini-current-usage", "Gemini Pro", "Current usage", remainingPercentAfter("Current usage"), resetAfter("Current usage"));
-    addQuota("gemini-weekly", "Gemini Pro", "Weekly limit", remainingPercentAfter("Weekly limit"), resetAfter("Weekly limit"));
-  }
-  if (location.hostname === "one.google.com") addCount("google-ai-credit", "Google AI Credits", "AI credits", countAfter("AI credits"));
-  return out;
-}

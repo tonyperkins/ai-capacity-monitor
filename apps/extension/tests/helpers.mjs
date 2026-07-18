@@ -1,21 +1,16 @@
 import { readFile } from "node:fs/promises";
 
-// parseVisibleMetrics() is injected into provider pages via
-// chrome.scripting.executeScript({ func: parseVisibleMetrics }) and is not
-// an exported module — background.js is a classic (non-module) service
-// worker script. Extracting its literal source text and evaluating it here
-// tests the exact function that ships, without changing how the extension
-// loads at runtime.
-export async function loadParseVisibleMetrics() {
-  const source = await readFile(new URL("../background.js", import.meta.url), "utf8");
-  const marker = "function parseVisibleMetrics()";
-  const start = source.indexOf(marker);
-  if (start < 0) throw new Error("parseVisibleMetrics() not found in background.js — has it been renamed or moved?");
-  const factory = new Function(`${source.slice(start)}\nreturn parseVisibleMetrics;`);
+// providers.js is a classic script (loaded via importScripts in the service
+// worker and a <script> tag in the popup), not a module. Evaluating its
+// literal source here tests the exact registry and engine that ship, without
+// changing how the extension loads at runtime.
+export async function loadProviders() {
+  const source = await readFile(new URL("../providers.js", import.meta.url), "utf8");
+  const factory = new Function(`${source}\nreturn { PROVIDERS, readProviderMetrics };`);
   return factory();
 }
 
-// A minimal DOM shim covering only what parseVisibleMetrics touches:
+// A minimal DOM shim covering only what readProviderMetrics touches:
 // element.children/.textContent/.parentElement/.innerText, plus
 // document.querySelectorAll("*"). No jsdom dependency needed.
 export class FakeElement {
@@ -38,10 +33,9 @@ function collectElements(root, out = []) {
   return out;
 }
 
-// Sets the globals parseVisibleMetrics reads. `dom`, if given, is an
-// element tree used only for Kilo's card-lookup path (querySelectorAll);
-// omitting it exercises the plain-text fallback parsing every other
-// provider (and Kilo's fallback) relies on.
+// Sets the globals readProviderMetrics reads. `dom`, if given, is an element
+// tree used only by the labeled-card-money read type (querySelectorAll);
+// omitting it exercises the plain-text parsing every other read type uses.
 export function setPage({ hostname, text, dom = null }) {
   globalThis.location = { hostname };
   globalThis.document = {

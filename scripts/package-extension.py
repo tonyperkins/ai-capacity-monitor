@@ -19,6 +19,7 @@ SRC = os.path.join(ROOT, "apps", "extension")
 SHIPPED = [
     "manifest.json",
     "background.js",
+    "providers.js",
     "popup.html",
     "popup.css",
     "popup.js",

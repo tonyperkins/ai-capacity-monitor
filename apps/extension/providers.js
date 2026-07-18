@@ -1,0 +1,170 @@
+// Provider registry: the single source of truth for every supported provider.
+// Loaded by the service worker (importScripts) and the popup (script tag);
+// tests evaluate this file directly.
+//
+// Each provider declares its page, tab-match pattern, and metrics. Each metric
+// carries display metadata (provider/label/kind/unit, quota reset window) and
+// a declarative `read` spec interpreted by the fixed engine below. Parsing is
+// data, not per-provider code: readProviderMetrics is injected into provider
+// tabs via chrome.scripting.executeScript, which serializes one function and
+// its JSON arguments — closures and per-provider functions cannot cross that
+// boundary, and a constrained spec language is also what a future signed
+// remote-profile system requires.
+//
+// Provider order matters: the popup derives balance/quota display order from
+// metric order across this array.
+
+const PROVIDERS = [
+  {
+    id: "kilo",
+    hostname: "app.kilo.ai",
+    url: "https://app.kilo.ai/credits",
+    match: "app.kilo.ai/credits",
+    metrics: [
+      { key: "kilo-credit", provider: "Kilo Balance", label: "Remaining credits", kind: "credit", unit: "usd", read: { type: "labeled-card-money", labels: ["Remaining Credits", "Available Credits", "Credit Balance", "Current Balance"] } },
+    ],
+  },
+  {
+    id: "openai-platform",
+    hostname: "platform.openai.com",
+    url: "https://platform.openai.com/home",
+    match: "platform.openai.com/home",
+    metrics: [
+      { key: "openai-api-credit", provider: "OpenAI API Balance", label: "Prepaid API credit", kind: "credit", unit: "usd", read: { type: "money-after", label: "Credit balance" } },
+    ],
+  },
+  {
+    id: "chatgpt",
+    hostname: "chatgpt.com",
+    url: "https://chatgpt.com/#settings/Usage",
+    match: "#settings/Usage",
+    metrics: [
+      { key: "chatgpt-weekly", provider: "ChatGPT Plus", label: "Weekly usage", kind: "quota", unit: "percent", resetWindowMs: 7 * 24 * 60 * 60 * 1000, read: { type: "quota", label: "Weekly usage limit" } },
+    ],
+  },
+  {
+    id: "claude-app",
+    hostname: "claude.ai",
+    url: "https://claude.ai/new#settings/usage",
+    match: "claude.ai/new#settings/usage",
+    metrics: [
+      { key: "claude-usage-credit", provider: "Claude.ai Balance", label: "Usage-credit balance", kind: "credit", unit: "usd", read: { type: "money-before-or-after", label: "Current balance" } },
+      { key: "claude-session", provider: "Claude Pro", label: "Current session", kind: "quota", unit: "percent", resetWindowMs: 5 * 60 * 60 * 1000, read: { type: "quota", label: "Current session" } },
+      { key: "claude-weekly", provider: "Claude Pro", label: "Weekly · all models", kind: "quota", unit: "percent", resetWindowMs: 7 * 24 * 60 * 60 * 1000, read: { type: "quota", label: "All models" } },
+      { key: "claude-fable", provider: "Claude Pro", label: "Weekly · Fable", kind: "quota", unit: "percent", resetWindowMs: 7 * 24 * 60 * 60 * 1000, read: { type: "quota", label: "Fable" } },
+      { key: "claude-usage-cap", provider: "Claude usage", label: "Monthly spending cap", kind: "quota", unit: "percent", resetWindowMs: 31 * 24 * 60 * 60 * 1000, read: { type: "quota", label: "Usage credits" } },
+    ],
+  },
+  {
+    id: "claude-platform",
+    hostname: "platform.claude.com",
+    url: "https://platform.claude.com/dashboard",
+    match: "platform.claude.com/dashboard",
+    metrics: [
+      { key: "claude-api-credit", provider: "Claude API Balance", label: "Organization credits", kind: "credit", unit: "usd", read: { type: "money-after", label: "Organization credits" } },
+    ],
+  },
+  {
+    id: "xai",
+    hostname: "console.x.ai",
+    url: "https://console.x.ai/",
+    match: "console.x.ai",
+    metrics: [
+      { key: "xai-credit", provider: "xAI Balance", label: "Credits remaining", kind: "credit", unit: "usd", read: { type: "money-after", label: "Credits remaining" } },
+    ],
+  },
+  {
+    id: "gemini-app",
+    hostname: "gemini.google.com",
+    url: "https://gemini.google.com/usage",
+    match: "gemini.google.com/usage",
+    metrics: [
+      { key: "gemini-current-usage", provider: "Gemini Pro", label: "Current usage", kind: "quota", unit: "percent", resetWindowMs: 24 * 60 * 60 * 1000, read: { type: "quota", label: "Current usage" } },
+      { key: "gemini-weekly", provider: "Gemini Pro", label: "Weekly limit", kind: "quota", unit: "percent", resetWindowMs: 7 * 24 * 60 * 60 * 1000, read: { type: "quota", label: "Weekly limit" } },
+    ],
+  },
+  {
+    id: "google-one",
+    hostname: "one.google.com",
+    url: "https://one.google.com/ai/activity",
+    match: "one.google.com/ai/activity",
+    metrics: [
+      { key: "google-ai-credit", provider: "Google AI Credits", label: "AI credits", kind: "credit", unit: "count", read: { type: "count-after", label: "AI credits" } },
+    ],
+  },
+];
+
+// Fixed parser engine. Injected into provider tabs with a single provider's
+// spec as its argument, so it must stay fully self-contained: no references
+// to anything defined outside this function.
+function readProviderMetrics(spec) {
+  if (location.hostname !== spec.hostname) return [];
+  const text = document.body.innerText;
+  const currencyToken = /(?:-\s*\$\s*|\$\s*-?\s*)[0-9,.]+|\(\s*\$\s*[0-9,.]+\s*\)/g;
+  const moneyAfter = (label) => {
+    const match = text.match(new RegExp(`${label}[\\s\\S]{0,160}?((?:-\\s*\\$\\s*|\\$\\s*-?\\s*)[0-9,.]+|\\(\\s*\\$\\s*[0-9,.]+\\s*\\))`, "i"));
+    return match ? match[1] : null;
+  };
+  const moneyBefore = (label) => {
+    const index = text.toLowerCase().lastIndexOf(label.toLowerCase());
+    if (index < 0) return null;
+    const candidates = [...text.slice(Math.max(0, index - 120), index).matchAll(currencyToken)];
+    return candidates.at(-1)?.[0] ?? null;
+  };
+  const labeledCardMoney = (labels) => {
+    for (const labelText of labels) {
+      const label = [...document.querySelectorAll("*")].find((element) => element.children.length === 0 && element.textContent?.trim().toLowerCase() === labelText.toLowerCase());
+      const card = label?.parentElement?.parentElement;
+      const cardAmount = card?.innerText.match(currencyToken)?.[0];
+      if (cardAmount) return cardAmount;
+      const nearbyAmount = moneyAfter(labelText);
+      if (nearbyAmount) return nearbyAmount;
+    }
+    return null;
+  };
+  const countAfter = (label) => {
+    const match = text.match(new RegExp(`${label}[\\s\\S]{0,160}?(\\d{1,3}(?:,\\d{3})*)`, "i"));
+    return match ? Number(match[1].replace(/,/g, "")) : null;
+  };
+  const quotaWindow = (label) => {
+    const lowerText = text.toLowerCase();
+    const lowerLabel = label.toLowerCase();
+    const indexes = [];
+    for (let index = lowerText.indexOf(lowerLabel); index >= 0; index = lowerText.indexOf(lowerLabel, index + lowerLabel.length)) indexes.push(index);
+    return indexes.reverse().map((index) => text.slice(index, index + 120)).find((window) => /\d+%\s*(?:remaining|used)/i.test(window));
+  };
+  const remainingPercentAfter = (label) => {
+    const match = quotaWindow(label)?.match(/(\d+)%\s*(remaining|used)/i);
+    if (!match) return null;
+    const amount = Number(match[1]);
+    return /used/i.test(match[2]) ? 100 - amount : amount;
+  };
+  const resetAfter = (label) => quotaWindow(label)?.match(/Resets[^\n]+/i)?.[0];
+  const money = (value) => {
+    const normalized = value.replace(/[\s$,()]/g, "");
+    return Number(value.includes("(") ? `-${normalized}` : normalized);
+  };
+  const moneyDisplay = (value) => {
+    const amount = money(value);
+    return `${amount < 0 ? "-" : ""}$${Math.abs(amount).toFixed(2)}`;
+  };
+
+  const out = [];
+  for (const metric of spec.metrics) {
+    const base = { key: metric.key, provider: metric.provider, label: metric.label, kind: metric.kind, unit: metric.unit };
+    const read = metric.read;
+    if (read.type === "money-after" || read.type === "money-before-or-after" || read.type === "labeled-card-money") {
+      const raw = read.type === "money-after" ? moneyAfter(read.label)
+        : read.type === "money-before-or-after" ? (moneyBefore(read.label) ?? moneyAfter(read.label))
+        : labeledCardMoney(read.labels);
+      if (raw) out.push({ ...base, value: money(raw) * 100, display: moneyDisplay(raw) });
+    } else if (read.type === "count-after") {
+      const count = countAfter(read.label);
+      if (Number.isFinite(count)) out.push({ ...base, value: count, display: `${count.toLocaleString()} credits` });
+    } else if (read.type === "quota") {
+      const remaining = remainingPercentAfter(read.label);
+      if (Number.isFinite(remaining)) out.push({ ...base, value: remaining, display: `${remaining}%`, resetText: resetAfter(read.label) });
+    }
+  }
+  return out;
+}
