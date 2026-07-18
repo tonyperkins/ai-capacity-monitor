@@ -146,5 +146,7 @@ $("save").addEventListener("click", async () => {
   setTimeout(() => { $("status").textContent = ""; }, 1800);
 });
 
+$("restart-onboarding").addEventListener("click", () => chrome.tabs.create({ url: chrome.runtime.getURL("onboarding.html"), active: true }));
+
 chrome.storage.onChanged.addListener((changes, area) => { if (area === "local" && (changes.metricStates || changes.enabledProviders)) load(); });
 load();

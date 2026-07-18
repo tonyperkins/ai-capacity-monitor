@@ -4,7 +4,7 @@
 <p class="eyebrow">CAPACITY MONITOR</p>
 <h1>Collection settings</h1>
 <p class="intro">Choose which providers are read, whether the extension collects in the background, and where snapshots are published.</p>
-<section><p class="section-label">Providers</p><div id="providers" class="providers"></div><p class="hint">Only enabled providers are read. Turning one on asks Chrome for access to that provider's site; disabling it stops collection and removes its stored readings. You can separately remove retained site access.</p></section>
+<section><p class="section-label">Providers</p><div id="providers" class="providers"></div><button id="restart-onboarding" class="secondary" type="button">Run guided setup</button><p class="hint">Only enabled providers are read. Turning one on asks Chrome for access to that provider's site; disabling it stops collection and removes its stored readings. You can separately remove retained site access.</p></section>
 <section><p class="section-label">Collection</p><label class="toggle"><input id="auto-updates" type="checkbox"> <span>Automatic updates</span></label><label class="interval">Collection interval <input id="interval" type="number" min="1" max="1440" step="1" inputmode="numeric"> <span>minutes</span></label><p class="hint">Manual collection and the individual card refresh buttons remain available when automatic updates are paused.</p></section>
 <section><p class="section-label">Diagnostics</p><div id="diagnostics" class="diagnostics" aria-live="polite"></div><p class="hint">Shows the last safe collection outcome for each enabled provider. Diagnostic codes never include page text or account information.</p></section>
 <section><p class="section-label">Publishing</p>

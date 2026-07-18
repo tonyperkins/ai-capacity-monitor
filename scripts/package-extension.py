@@ -28,6 +28,9 @@ SHIPPED = [
     "options.html",
     "options.css",
     "options.js",
+    "onboarding.html",
+    "onboarding.css",
+    "onboarding.js",
 ]
 EXCLUDED = {"tests", "package.json", "README.md", "node_modules"}
 FIXED_DATE = (2000, 1, 1, 0, 0, 0)

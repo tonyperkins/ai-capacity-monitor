@@ -97,7 +97,7 @@ async function focusProvider(key) {
 }
 
 async function load() {
-  const data = await chrome.storage.local.get(["latestMetrics", "metricStates", "lastCollectedAt", "closeOpenedTabs", "autoCollectionEnabled", "enabledProviders"]);
+  const data = await chrome.storage.local.get(["latestMetrics", "metricStates", "lastCollectedAt", "closeOpenedTabs", "autoCollectionEnabled", "enabledProviders", "onboardingCompleted"]);
   const enabledIds = data.enabledProviders ?? [];
   const enabledKeys = new Set(PROVIDERS.filter((provider) => enabledIds.includes(provider.id)).flatMap((provider) => provider.metrics.map((metric) => metric.key)));
   const visibleMetrics = (data.latestMetrics ?? []).filter((metric) => enabledKeys.has(metric.key));
@@ -109,7 +109,7 @@ async function load() {
   renderUpdated();
   const attention = Object.values(visibleStates).some((state) => state.state !== "validated");
   $("status").textContent = !enabledIds.length ? "SET UP" : attention ? "ATTENTION" : data.lastCollectedAt ? "READY" : "WAITING";
-  if (!enabledIds.length) $("updated").textContent = "Enable providers in Settings to start collecting";
+  if (!enabledIds.length) $("updated").textContent = data.onboardingCompleted ? "No providers yet — choose providers in Settings" : "Set up a provider in Settings";
 }
 
 function applyCollectResult(result) {

@@ -24,7 +24,7 @@ const PROVIDERS = [
     collection: { readyTimeoutMs: 12000, maxAttempts: 4, retryDelayMs: 1500 },
     authMarkers: ["log in", "sign in", "continue with google"],
     metrics: [
-      { key: "kilo-credit", provider: "Kilo Balance", label: "Remaining credits", kind: "credit", unit: "usd", read: { type: "labeled-card-money", labels: ["Remaining Credits", "Available Credits", "Credit Balance", "Current Balance"] } },
+      { key: "kilo-credit", provider: "Kilo Balance", label: "Remaining credits", kind: "credit", unit: "usd", read: { type: "labeled-card-money", labels: ["Your credit balance", "Remaining Credits", "Available Credits", "Credit Balance", "Current Balance"] } },
     ],
   },
   {
