@@ -1,24 +1,20 @@
-import http from "node:http";
 import crypto from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
+import { createBridge, normalizeConfig } from "./bridge.js";
 
-const configPath = process.env.CAPACITY_COLLECTOR_CONFIG ?? new URL("./config.local.json", import.meta.url);
-const config = JSON.parse(await readFile(configPath, "utf8"));
-if (!config.collectorSecret) {
-  config.collectorSecret = crypto.randomBytes(32).toString("hex");
-  await writeFile(configPath, JSON.stringify(config, null, 2));
-  console.log(`Generated a new collector secret. Paste this into the extension's Settings page (Local bridge secret):\n${config.collectorSecret}`);
+const configPath = process.env.CAPACITY_COLLECTOR_CONFIG ?? fileURLToPath(new URL("./config.local.json", import.meta.url));
+const rawConfig = JSON.parse(await readFile(configPath, "utf8"));
+if (!rawConfig.collectorSecret) {
+  rawConfig.collectorSecret = crypto.randomBytes(32).toString("hex");
+  await writeFile(configPath, JSON.stringify(rawConfig, null, 2), { mode: 0o600 });
+  console.log(`Generated a new collector secret. Paste this into the extension's Settings page (Local bridge secret):\n${rawConfig.collectorSecret}`);
 }
-const server = http.createServer(async (request, response) => {
-  if (request.method !== "POST" || request.url !== "/collect") return response.writeHead(404).end();
-  if (request.headers["x-collector-secret"] !== config.collectorSecret) return response.writeHead(401, { "content-type": "application/json" }).end(JSON.stringify({ error: "Unauthorized" }));
-  let raw = ""; for await (const chunk of request) raw += chunk;
-  console.log(`Collection received: ${raw.length} bytes`);
-  try {
-    const upstream = await fetch(`${config.siteUrl}/api/ingest`, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${config.token}`, "OAI-Sites-Authorization": `Bearer ${config.sitesBypassToken}` }, body: raw });
-    const result = await upstream.text();
-    console.log(`Collection delivery: ${upstream.status} ${result}`);
-    response.writeHead(upstream.ok ? 202 : 502, { "content-type": "application/json" }).end(result);
-  } catch (error) { console.error("Collection delivery failed:", error); response.writeHead(503).end("Collector cannot reach Capacity Monitor"); }
-});
-server.listen(8787, "127.0.0.1", () => console.log("Capacity Monitor collector listening on 127.0.0.1:8787"));
+const config = normalizeConfig(rawConfig, { configPath });
+if (config.migratedLegacyDestination) {
+  rawConfig.destination = config.destination;
+  await writeFile(configPath, JSON.stringify(rawConfig, null, 2), { mode: 0o600 });
+  console.log("Migrated legacy Sites forwarding settings to a generic webhook destination.");
+}
+const bridge = await createBridge({ config });
+bridge.server.listen(8787, "127.0.0.1", () => console.log("Capacity Monitor bridge listening on 127.0.0.1:8787"));

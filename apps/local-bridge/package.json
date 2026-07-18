@@ -1,0 +1,6 @@
+{
+  "name": "ai-capacity-monitor-local-bridge",
+  "private": true,
+  "type": "module",
+  "scripts": { "test": "node --test" }
+}

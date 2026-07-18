@@ -1,1 +1,9 @@
-{ "siteUrl": "https://tony-ai-capacity-monitor.perkins-tony.chatgpt.site", "token": "set-by-installer" }
+{
+  "collectorSecret": "generated-on-first-start-if-omitted",
+  "destination": {
+    "type": "webhook",
+    "url": "https://example.com/capacity",
+    "headers": { "Authorization": "Bearer set-by-installer" }
+  },
+  "queue": { "maxItems": 50 }
+}
