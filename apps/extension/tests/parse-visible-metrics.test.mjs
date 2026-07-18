@@ -27,6 +27,10 @@ test("registry is structurally sound", () => {
       assert.ok(["usd", "percent", "count"].includes(metric.unit), `${metric.key}: valid unit`);
       assert.ok(metric.read?.type, `${metric.key}: read spec required`);
       if (metric.kind === "quota") assert.ok(metric.resetWindowMs > 0, `${metric.key}: quotas need a resetWindowMs`);
+      const moneyReads = ["money-after", "money-before-or-after", "labeled-card-money"];
+      if (moneyReads.includes(metric.read.type)) assert.equal(metric.unit, "usd", `${metric.key}: money reads must be unit usd`);
+      if (metric.read.type === "count-after") assert.equal(metric.unit, "count", `${metric.key}: counted reads must be unit count, never usd`);
+      if (metric.read.type === "quota") assert.equal(metric.unit, "percent", `${metric.key}: quota reads must be unit percent`);
     }
   }
 });
@@ -70,6 +74,7 @@ test("Kilo balance via the DOM card-lookup path", () => {
   const { "kilo-credit": metric } = byKey(parse());
   assert.equal(metric.value, 305);
   assert.equal(metric.display, "$3.05");
+  assert.equal(metric.unit, "usd");
 });
 
 test("Kilo balance falls through label variants via the text fallback when no DOM card matches", () => {
@@ -196,4 +201,5 @@ test("Google One AI credits (a bare count, not a dollar balance)", () => {
   assert.equal(metric.value, 2228);
   assert.equal(metric.display, "2,228 credits");
   assert.equal(metric.kind, "credit");
+  assert.equal(metric.unit, "count", "a credit count must never be published as usd cents");
 });

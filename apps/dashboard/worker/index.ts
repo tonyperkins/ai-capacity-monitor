@@ -58,7 +58,7 @@ type SnapshotMetric = {
   label: string;
   kind: "credit" | "quota";
   value: number;
-  unit: "usd" | "percent";
+  unit: "usd" | "percent" | "count";
   status: "verified" | "unverified";
   resetAt?: string;
   collectedAt?: string;
@@ -77,7 +77,7 @@ function isValidMetric(value: unknown): value is SnapshotMetric {
     typeof m.label === "string" && m.label.length > 0 && m.label.length <= 100 &&
     (m.kind === "credit" || m.kind === "quota") &&
     Number.isFinite(m.value) &&
-    (m.unit === "usd" || m.unit === "percent") &&
+    (m.unit === "usd" || m.unit === "percent" || m.unit === "count") &&
     (m.status === "verified" || m.status === "unverified") &&
     (m.display === undefined || (typeof m.display === "string" && m.display.length <= 40)) &&
     (m.resetText === undefined || (typeof m.resetText === "string" && m.resetText.length <= 160)) &&

@@ -23,9 +23,9 @@
           "kind": { "enum": ["credit", "quota"] },
           "value": {
             "type": "integer",
-            "description": "For kind \"credit\" with unit \"usd\": integer minor units (cents) — 305 means $3.05. For kind \"quota\" with unit \"percent\": integer 0-100, percent remaining. Values are never decimal dollars."
+            "description": "For unit \"usd\": integer minor units (cents) — 305 means $3.05. For unit \"percent\": integer 0-100, percent remaining. For unit \"count\": a plain credit count (e.g. Google One AI credits). Values are never decimal dollars."
           },
-          "unit": { "enum": ["usd", "percent"] },
+          "unit": { "enum": ["usd", "percent", "count"] },
           "status": {
             "enum": ["verified", "unverified"],
             "description": "\"verified\" is a freshly confirmed reading. \"unverified\" is reserved for a reading a consumer should not treat as authoritative yet; producers currently only ever send \"verified\" metrics — an unconfirmed reading is held back and not included in the snapshot at all."

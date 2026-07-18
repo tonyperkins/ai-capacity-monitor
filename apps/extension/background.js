@@ -97,7 +97,7 @@ async function runCollection(targets) {
   const snapshot = {
     version: "1",
     collectedAt,
-    metrics: verifiedMetrics.map((metric) => ({ ...metric, unit: metric.kind === "credit" ? "usd" : "percent", status: "verified" })),
+    metrics: verifiedMetrics.map((metric) => ({ ...metric, unit: metric.unit ?? (metric.kind === "credit" ? "usd" : "percent"), status: "verified" })),
     issues,
   };
   try {
