@@ -6,6 +6,19 @@ only the provider pages you explicitly enable, remains useful without any
 service account, and can optionally publish a normalized snapshot to a
 destination you choose.
 
+## Why it exists
+
+This started with a repetitive browser ritual: checking Kilo credits, OpenAI
+API balance, ChatGPT weekly usage, and Claude limits meant switching among a
+collection of authenticated tabs and settings screens. None of those checks was
+hard, but together they were a tax on attention.
+
+AI Capacity Monitor keeps the displayed values in one place without pretending
+they are a stable provider API. The extension is local-first because the
+authenticated browser is where those values already live; an optional dashboard
+can consume its normalized snapshot, but the toolbar popup remains useful on
+its own.
+
 ## What it does
 
 - Reads visible balances and plan-limit readings from selected, authenticated
