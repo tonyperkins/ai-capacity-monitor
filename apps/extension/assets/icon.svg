@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Capacity Monitor">
+  <rect width="128" height="128" rx="28" fill="#081221"/>
+  <circle cx="64" cy="64" r="43" fill="none" stroke="#243f5c" stroke-width="12"/>
+  <path d="M64 21a43 43 0 1 1-30.4 12.6" fill="none" stroke="#3ad9ff" stroke-linecap="round" stroke-width="12"/>
+  <circle cx="36" cy="36" r="7" fill="#8ff7c4"/>
+  <path d="M78 45a25 25 0 1 0 0 38" fill="none" stroke="#eaf6ff" stroke-linecap="round" stroke-width="8"/>
+</svg>
