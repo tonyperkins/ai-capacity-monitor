@@ -1,0 +1,21 @@
+const POPUP_COPY = {
+  noSnapshot: "No local snapshot yet",
+  setup: "SET UP",
+  attention: "ATTENTION",
+  ready: "READY",
+  waiting: "WAITING",
+  syncing: "SYNCING",
+  opening: "OPENING",
+  checkTabs: "CHECK TABS",
+  savedLocal: "SAVED LOCAL",
+  sent: "SENT",
+  queued: "QUEUED",
+  states: {
+    validated: "Fresh reading",
+    "suspicious-held": "Confirming change",
+    "retained-prior": "Showing prior value",
+    unauthenticated: "Sign in required",
+    "permission-needed": "Permission needed",
+    failed: "Reading unavailable",
+  },
+};
