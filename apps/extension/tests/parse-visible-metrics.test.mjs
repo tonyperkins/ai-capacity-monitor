@@ -19,7 +19,7 @@ test("registry is structurally sound", () => {
   const hostnames = PROVIDERS.map((provider) => provider.hostname);
   assert.equal(new Set(hostnames).size, hostnames.length, "hostnames must be unique across providers");
   for (const provider of PROVIDERS) {
-    assert.ok(provider.id && provider.hostname && provider.url && provider.match, `${provider.id ?? "?"}: id/hostname/url/match required`);
+    assert.ok(provider.id && provider.name && provider.hostname && provider.url && provider.match, `${provider.id ?? "?"}: id/name/hostname/url/match required`);
     assert.ok(provider.metrics.length > 0, `${provider.id}: at least one metric`);
     for (const metric of provider.metrics) {
       assert.ok(metric.key && metric.provider && metric.label, `${metric.key ?? "?"}: key/provider/label required`);

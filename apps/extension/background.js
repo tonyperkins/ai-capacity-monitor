@@ -6,19 +6,25 @@ const SUSPICION_MAX_AGE_MS = 10 * 60 * 1000;
 const SUSPICION_RETRY_DELAY_MS = 30 * 1000;
 let activeCollection = null;
 
-chrome.runtime.onInstalled.addListener(initializeSchedule);
+chrome.runtime.onInstalled.addListener((details) => initializeSchedule(details));
 chrome.runtime.onStartup.addListener(syncSchedule);
 chrome.storage.onChanged.addListener((changes, area) => {
-  if (area === "local" && (changes.autoCollectionEnabled || changes.collectionIntervalMinutes)) syncSchedule();
+  if (area !== "local") return;
+  if (changes.autoCollectionEnabled || changes.collectionIntervalMinutes) syncSchedule();
+  if (changes.enabledProviders) pruneDisabledMetrics(changes.enabledProviders.newValue ?? []);
 });
 chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name !== "collect" && alarm.name !== "collect-retry") return;
   const { autoCollectionEnabled = true } = await chrome.storage.local.get("autoCollectionEnabled");
   if (!autoCollectionEnabled) return;
-  if (alarm.name === "collect") return collect(PROVIDERS);
+  const enabled = await getEnabledProviders();
+  if (alarm.name === "collect") {
+    if (enabled.length) collect(enabled);
+    return;
+  }
   const { pendingSuspicion = {} } = await chrome.storage.local.get("pendingSuspicion");
   const pendingKeys = new Set(Object.keys(pendingSuspicion));
-  const targets = PROVIDERS.filter((target) => target.metrics.some((metric) => pendingKeys.has(metric.key)));
+  const targets = enabled.filter((target) => target.metrics.some((metric) => pendingKeys.has(metric.key)));
   if (targets.length) collect(targets);
 });
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
@@ -26,11 +32,30 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     focusProvider(message.key).then((result) => sendResponse(result)).catch((error) => sendResponse({ ok: false, error: String(error) }));
     return true;
   }
-  const targets = message?.type === "collect" ? PROVIDERS : message?.type === "collect-provider" ? PROVIDERS.filter((target) => target.metrics.some((metric) => metric.key === message.key)) : [];
-  if (!targets.length) return;
-  collect(targets).then((result) => sendResponse(result)).catch((error) => sendResponse({ ok: false, error: String(error) }));
+  if (message?.type !== "collect" && message?.type !== "collect-provider") return;
+  (async () => {
+    const enabled = await getEnabledProviders();
+    const targets = message.type === "collect" ? enabled : enabled.filter((target) => target.metrics.some((metric) => metric.key === message.key));
+    if (!targets.length) return { ok: false, error: "No providers are enabled. Choose providers in Settings." };
+    return collect(targets);
+  })().then((result) => sendResponse(result)).catch((error) => sendResponse({ ok: false, error: String(error) }));
   return true;
 });
+
+async function getEnabledProviders() {
+  const { enabledProviders = [] } = await chrome.storage.local.get("enabledProviders");
+  return PROVIDERS.filter((provider) => enabledProviders.includes(provider.id));
+}
+
+async function pruneDisabledMetrics(enabledIds) {
+  const enabledKeys = new Set(PROVIDERS.filter((provider) => enabledIds.includes(provider.id)).flatMap((provider) => provider.metrics.map((metric) => metric.key)));
+  const { latestMetrics = [], pendingSuspicion = {} } = await chrome.storage.local.get(["latestMetrics", "pendingSuspicion"]);
+  const keptMetrics = latestMetrics.filter((metric) => enabledKeys.has(metric.key));
+  const keptPending = Object.fromEntries(Object.entries(pendingSuspicion).filter(([key]) => enabledKeys.has(key)));
+  if (keptMetrics.length !== latestMetrics.length || Object.keys(keptPending).length !== Object.keys(pendingSuspicion).length) {
+    await chrome.storage.local.set({ latestMetrics: keptMetrics, pendingSuspicion: keptPending });
+  }
+}
 
 async function focusProvider(key) {
   const target = PROVIDERS.find((candidate) => candidate.metrics.some((metric) => metric.key === key));
@@ -45,11 +70,14 @@ async function focusProvider(key) {
   return { ok: true, opened: true };
 }
 
-async function initializeSchedule() {
-  const config = await chrome.storage.local.get(["autoCollectionEnabled", "collectionIntervalMinutes"]);
+async function initializeSchedule(details) {
+  const config = await chrome.storage.local.get(["autoCollectionEnabled", "collectionIntervalMinutes", "enabledProviders"]);
   await chrome.storage.local.set({
     ...(config.autoCollectionEnabled === undefined ? { autoCollectionEnabled: true } : {}),
     ...(config.collectionIntervalMinutes === undefined ? { collectionIntervalMinutes: 20 } : {}),
+    // Fresh installs start with no providers enabled; an upgrade from a
+    // pre-settings version keeps its existing collect-everything behavior.
+    ...(config.enabledProviders === undefined ? { enabledProviders: details?.reason === "update" ? PROVIDERS.map((provider) => provider.id) : [] } : {}),
   });
   await syncSchedule();
 }

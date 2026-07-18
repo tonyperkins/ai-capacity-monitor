@@ -17,6 +17,7 @@
 const PROVIDERS = [
   {
     id: "kilo",
+    name: "Kilo",
     hostname: "app.kilo.ai",
     url: "https://app.kilo.ai/credits",
     match: "app.kilo.ai/credits",
@@ -26,6 +27,7 @@ const PROVIDERS = [
   },
   {
     id: "openai-platform",
+    name: "OpenAI Platform",
     hostname: "platform.openai.com",
     url: "https://platform.openai.com/home",
     match: "platform.openai.com/home",
@@ -35,6 +37,7 @@ const PROVIDERS = [
   },
   {
     id: "chatgpt",
+    name: "ChatGPT",
     hostname: "chatgpt.com",
     url: "https://chatgpt.com/#settings/Usage",
     match: "#settings/Usage",
@@ -44,6 +47,7 @@ const PROVIDERS = [
   },
   {
     id: "claude-app",
+    name: "Claude.ai",
     hostname: "claude.ai",
     url: "https://claude.ai/new#settings/usage",
     match: "claude.ai/new#settings/usage",
@@ -57,6 +61,7 @@ const PROVIDERS = [
   },
   {
     id: "claude-platform",
+    name: "Claude Platform",
     hostname: "platform.claude.com",
     url: "https://platform.claude.com/dashboard",
     match: "platform.claude.com/dashboard",
@@ -66,6 +71,7 @@ const PROVIDERS = [
   },
   {
     id: "xai",
+    name: "xAI Console",
     hostname: "console.x.ai",
     url: "https://console.x.ai/",
     match: "console.x.ai",
@@ -75,6 +81,7 @@ const PROVIDERS = [
   },
   {
     id: "gemini-app",
+    name: "Gemini",
     hostname: "gemini.google.com",
     url: "https://gemini.google.com/usage",
     match: "gemini.google.com/usage",
@@ -85,6 +92,7 @@ const PROVIDERS = [
   },
   {
     id: "google-one",
+    name: "Google One AI credits",
     hostname: "one.google.com",
     url: "https://one.google.com/ai/activity",
     match: "one.google.com/ai/activity",

@@ -8,16 +8,18 @@ function oldestVisibleCollectedAt(metrics=[]){const times=[...balanceOrder,...qu
 function renderUpdated(){if(!collectedAt){$("updated").textContent="No local snapshot yet";return}const age=Math.max(0,Math.floor((Date.now()-new Date(collectedAt).getTime())/1000));const minutes=Math.floor(age/60);const seconds=age%60;const elapsed=minutes>=60?`${Math.floor(minutes/60)}h ${minutes%60}m ago`:`${minutes}m ${seconds}s ago`;$("updated").textContent=`Updated ${new Date(collectedAt).toLocaleTimeString([], {hour:"numeric",minute:"2-digit"})} - ${elapsed}`}
 function timeRemainingPercent(metric){const total=resetWindows[metric.key];if(!total||!metric.resetText)return null;const countdown=[...metric.resetText.matchAll(/(\d+)\s*(day|days|d|hour|hours|hr|hrs|h|min|mins|minute|minutes|m)/gi)].reduce((milliseconds,match)=>milliseconds+Number(match[1])*({d:86400000,day:86400000,days:86400000,h:3600000,hr:3600000,hrs:3600000,hour:3600000,hours:3600000,m:60000,min:60000,mins:60000,minute:60000,minutes:60000}[match[2].toLowerCase()]??0),0);if(countdown)return Math.max(0,Math.min(100,countdown/total*100));const dateText=metric.resetText.replace(/^Resets\s*/i,"");const dateOnly=/^[A-Za-z]{3,9}\s+\d{1,2}$/.test(dateText);let reset=new Date(dateOnly?`${dateText}, ${new Date().getFullYear()}`:dateText);if(Number.isNaN(reset.getTime()))return null;if(reset.getTime()<Date.now()&&dateOnly)reset.setFullYear(reset.getFullYear()+1);return Math.max(0,Math.min(100,(reset.getTime()-Date.now())/total*100))}
 function escapeHtml(value){return String(value??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]))}
-function render(metrics=[]){
+function render(metrics=[],enabledKeys=null){
   const byKey=Object.fromEntries(metrics.map(metric=>[metric.key,metric]));
-  $("balances").innerHTML=balanceOrder.map(key=>{
+  const visibleBalances=enabledKeys?balanceOrder.filter(key=>enabledKeys.has(key)):balanceOrder;
+  const visibleQuotas=enabledKeys?quotaOrder.filter(key=>enabledKeys.has(key)):quotaOrder;
+  $("balances").innerHTML=visibleBalances.map(key=>{
     const m=byKey[key];
     const provider=escapeHtml(m?.provider??"provider");
     const providerLabel=escapeHtml(m?.provider??"Awaiting provider");
     const display=escapeHtml(m?.display??"—");
     return `<article class="card provider-link" data-key="${key}" tabindex="0" role="button" title="Open ${provider}"><div class="card-top"><span>${providerLabel}</span><button class="card-refresh" data-key="${key}" type="button" title="Refresh ${provider}" aria-label="Refresh ${provider}">↻</button></div><strong>${display}</strong></article>`;
   }).join("");
-  $("quotas").innerHTML=quotaOrder.map(key=>{
+  $("quotas").innerHTML=visibleQuotas.map(key=>{
     const m=byKey[key];
     if(!m)return "";
     const timePercent=timeRemainingPercent(m);
@@ -31,10 +33,10 @@ function render(metrics=[]){
   document.querySelectorAll(".card-refresh").forEach(button=>button.addEventListener("click",()=>refreshProvider(button)));
 }
 async function focusProvider(key){$("status").textContent="OPENING";const result=await chrome.runtime.sendMessage({type:"focus-provider",key});if(!result?.ok){$("status").textContent="CHECK TABS";$("updated").textContent=result?.error??"Unable to open provider";$("updated").className="error"}}
-async function load(){const data=await chrome.storage.local.get(["latestMetrics","lastCollectedAt","lastIssues","closeOpenedTabs","autoCollectionEnabled"]);render(data.latestMetrics);$("issues").textContent=(data.lastIssues??[]).join(" ");$("close-opened-tabs").checked=Boolean(data.closeOpenedTabs);$("auto-updates").checked=data.autoCollectionEnabled!==false;collectedAt=oldestVisibleCollectedAt(data.latestMetrics)??data.lastCollectedAt??null;renderUpdated();$("status").textContent=data.lastCollectedAt?(data.lastIssues?.length?"UPDATING":"READY"):"WAITING"}
+async function load(){const data=await chrome.storage.local.get(["latestMetrics","lastCollectedAt","lastIssues","closeOpenedTabs","autoCollectionEnabled","enabledProviders"]);const enabledIds=data.enabledProviders??[];const enabledKeys=new Set(PROVIDERS.filter(p=>enabledIds.includes(p.id)).flatMap(p=>p.metrics.map(m=>m.key)));render(data.latestMetrics,enabledKeys);$("issues").textContent=(data.lastIssues??[]).join(" ");$("close-opened-tabs").checked=Boolean(data.closeOpenedTabs);$("auto-updates").checked=data.autoCollectionEnabled!==false;collectedAt=oldestVisibleCollectedAt((data.latestMetrics??[]).filter(m=>enabledKeys.has(m.key)))??data.lastCollectedAt??null;renderUpdated();$("status").textContent=data.lastCollectedAt?(data.lastIssues?.length?"UPDATING":"READY"):"WAITING";if(!enabledIds.length){$("status").textContent="SET UP";$("updated").textContent="Enable providers in Settings to start collecting"}}
 async function refreshProvider(button){button.disabled=true;$("status").textContent="SYNCING";const result=await chrome.runtime.sendMessage({type:"collect-provider",key:button.dataset.key});await load();if(!result?.ok){const savedLocally=result?.error?.includes("local snapshot was saved");$("status").textContent=savedLocally?"SAVED LOCAL":"CHECK TABS";$("updated").textContent=result?.error??"Collection failed";$("updated").className=savedLocally?"":"error"}else if(result.issues?.length){$("status").textContent="UPDATING";$("updated").textContent="Kept verified values · retrying automatically"}else{$("status").textContent="SENT";renderUpdated()}}
 $("auto-updates").addEventListener("change",event=>chrome.storage.local.set({autoCollectionEnabled:event.target.checked}));
 $("close-opened-tabs").addEventListener("change",event=>chrome.storage.local.set({closeOpenedTabs:event.target.checked}));
 $("settings").addEventListener("click",()=>chrome.runtime.openOptionsPage());
-chrome.storage.onChanged.addListener((changes,area)=>{if(area==="local"&&["latestMetrics","lastCollectedAt","lastIssues","autoCollectionEnabled"].some(key=>changes[key]))load()});
+chrome.storage.onChanged.addListener((changes,area)=>{if(area==="local"&&["latestMetrics","lastCollectedAt","lastIssues","autoCollectionEnabled","enabledProviders"].some(key=>changes[key]))load()});
 $("collect").addEventListener("click",async()=>{const button=$("collect");button.disabled=true;button.textContent="Collecting";$("status").textContent="SYNCING";const result=await chrome.runtime.sendMessage({type:"collect"});await load();if(!result?.ok){const savedLocally=result?.error?.includes("local snapshot was saved");$("status").textContent=savedLocally?"SAVED LOCAL":"CHECK TABS";$("updated").textContent=result?.error??"Collection failed";$("updated").className=savedLocally?"":"error"}else if(result.issues?.length){$("status").textContent="UPDATING";$("updated").textContent="Kept verified values · retrying automatically"}else{$("status").textContent="SENT";renderUpdated()}button.disabled=false;button.textContent="Collect now"});setInterval(renderUpdated,1000);load();
