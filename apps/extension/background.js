@@ -1,4 +1,4 @@
-importScripts("providers.js", "publishing.js");
+importScripts("providers.js", "publishing.js", "permissions.js");
 
 const COLLECTION_DEADLINE_MS = 30 * 1000;
 const SUSPICION_CONFIRMATIONS_REQUIRED = 2;
@@ -21,11 +21,11 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   const { autoCollectionEnabled = true } = await chrome.storage.local.get("autoCollectionEnabled");
   if (!autoCollectionEnabled) return;
   const enabled = await getEnabledProviders();
-  if (alarm.name === "collect") return enabled.length ? collect(enabled) : undefined;
+  if (alarm.name === "collect") return enabled.permitted.length || enabled.missing.length ? collect(enabled) : undefined;
   const { pendingSuspicion = {} } = await chrome.storage.local.get("pendingSuspicion");
   const pendingKeys = new Set(Object.keys(pendingSuspicion));
-  const targets = enabled.filter((target) => target.metrics.some((metric) => pendingKeys.has(metric.key)));
-  return targets.length ? collect(targets) : undefined;
+  const permitted = enabled.permitted.filter((target) => target.metrics.some((metric) => pendingKeys.has(metric.key)));
+  return permitted.length ? collect({ permitted, missing: [] }) : undefined;
 });
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type === "focus-provider") {
@@ -35,15 +35,20 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type !== "collect" && message?.type !== "collect-provider") return;
   (async () => {
     const enabled = await getEnabledProviders();
-    const targets = message.type === "collect" ? enabled : enabled.filter((target) => target.metrics.some((metric) => metric.key === message.key));
-    return targets.length ? collect(targets) : { ok: false, error: "No providers are enabled. Choose providers in Settings." };
+    const selection = message.type === "collect" ? enabled : {
+      permitted: enabled.permitted.filter((target) => target.metrics.some((metric) => metric.key === message.key)),
+      missing: enabled.missing.filter((target) => target.metrics.some((metric) => metric.key === message.key)),
+    };
+    return selection.permitted.length || selection.missing.length ? collect(selection) : { ok: false, error: "No providers are enabled. Choose providers in Settings." };
   })().then(sendResponse).catch((error) => sendResponse({ ok: false, error: String(error) }));
   return true;
 });
 
 async function getEnabledProviders() {
   const { enabledProviders = [] } = await chrome.storage.local.get("enabledProviders");
-  return PROVIDERS.filter((provider) => enabledProviders.includes(provider.id));
+  const selected = PROVIDERS.filter((provider) => enabledProviders.includes(provider.id));
+  const permission = await Promise.all(selected.map(async (provider) => ({ provider, granted: await chrome.permissions.contains({ origins: [providerOrigin(provider)] }) })));
+  return { permitted: permission.filter((entry) => entry.granted).map((entry) => entry.provider), missing: permission.filter((entry) => !entry.granted).map((entry) => entry.provider) };
 }
 
 async function pruneDisabledMetrics(enabledIds) {
@@ -58,6 +63,7 @@ async function pruneDisabledMetrics(enabledIds) {
 async function focusProvider(key) {
   const target = PROVIDERS.find((candidate) => candidate.metrics.some((metric) => metric.key === key));
   if (!target) return { ok: false, error: "No provider page is configured for this item." };
+  if (!await chrome.permissions.contains({ origins: [providerOrigin(target)] })) return { ok: false, error: "Permission needed. Grant access in Settings before opening this provider." };
   const candidates = (await chrome.tabs.query({})).filter((tab) => tab.url?.includes(target.match));
   if (candidates.length) {
     await chrome.tabs.update(candidates.sort((a, b) => (b.lastAccessed ?? 0) - (a.lastAccessed ?? 0))[0].id, { active: true });
@@ -86,20 +92,20 @@ async function syncSchedule() {
   if (!autoCollectionEnabled) await chrome.alarms.clear("collect-retry");
 }
 
-function collect(targets = PROVIDERS) {
+function collect(selection) {
   if (activeCollection) return activeCollection;
-  activeCollection = runCollection(targets).finally(() => { activeCollection = null; });
+  activeCollection = runCollection(selection).finally(() => { activeCollection = null; });
   return activeCollection;
 }
 
-async function runCollection(targets) {
+async function runCollection({ permitted: targets = [], missing = [] }) {
   const startedAt = Date.now();
   const deadline = startedAt + COLLECTION_DEADLINE_MS;
   const { tabs, opened } = await ensureDashboardTabs(targets);
   await refreshTabs(tabs, opened);
   await waitForTabsReady(tabs, targets, deadline);
-  const outcomes = await readWithRetries(tabs, targets, deadline);
-  const targetKeys = new Set(targets.flatMap((target) => target.metrics.map((metric) => metric.key)));
+  const outcomes = [...await readWithRetries(tabs, targets, deadline), ...missing.map((target) => ({ target, metrics: [], state: "permission-needed", errorCode: "permission-needed", attemptedAt: new Date().toISOString() }))];
+  const targetKeys = new Set([...targets, ...missing].flatMap((target) => target.metrics.map((metric) => metric.key)));
   const previous = await chrome.storage.local.get(["latestMetrics", "metricStates", "pendingSuspicion", "autoCollectionEnabled"]);
   const priorByKey = Object.fromEntries((previous.latestMetrics ?? []).map((metric) => [metric.key, metric]));
   const nextPending = { ...(previous.pendingSuspicion ?? {}) };
@@ -116,7 +122,7 @@ async function runCollection(targets) {
       const attemptedAt = outcome.attemptedAt;
       const parsed = parsedByKey[definition.key];
       const prior = priorByKey[definition.key];
-      let state = outcome.state === "unauthenticated" ? "unauthenticated" : "failed";
+      let state = outcome.state === "unauthenticated" ? "unauthenticated" : outcome.state === "permission-needed" ? "permission-needed" : "failed";
       let errorCode = outcome.errorCode ?? "metric-not-found";
       let stored = null;
       if (parsed) {
@@ -143,7 +149,7 @@ async function runCollection(targets) {
           stored = { ...parsed, collectedAt: new Date(now).toISOString(), status: "verified", readState: state, attemptedAt, errorCode };
         }
       } else if (prior) {
-        state = outcome.state === "unauthenticated" ? "unauthenticated" : "retained-prior";
+        state = outcome.state === "unauthenticated" ? "unauthenticated" : outcome.state === "permission-needed" ? "permission-needed" : "retained-prior";
         stored = { ...prior, status: "unverified", readState: state, attemptedAt, errorCode };
       }
       const diagnostic = { key: definition.key, providerId: target.id, state, errorCode, attemptedAt };
@@ -182,6 +188,7 @@ function diagnosticMessage(diagnostic) {
     "suspicious-held": "Reading changed unexpectedly; showing the prior verified value while it is confirmed.",
     "retained-prior": "Could not read this time; showing the last verified value.",
     unauthenticated: "Open the provider page and sign in, then collect again.",
+    "permission-needed": "Grant this provider access in Settings, then collect again.",
     failed: "No reading is available yet. Open the provider page and try again.",
   };
   return `${name}: ${messages[diagnostic.state] ?? "Collection needs attention."}`;
@@ -216,6 +223,8 @@ async function runDrain() {
   const url = mode === "bridge" ? (config.bridgeUrl || "http://127.0.0.1:8787/collect") : config.webhookUrl;
   const check = validateDestinationUrl(mode, url);
   if (!check.ok) return setPublishStatus({ state: "failed", detail: check.error });
+  const destinationOrigin = originPatternForUrl(url);
+  if (!destinationOrigin || !await chrome.permissions.contains({ origins: [destinationOrigin] })) return setPublishStatus({ state: "failed", detail: "permission needed for publishing destination" });
   const headers = { "content-type": "application/json" };
   if (mode === "bridge") headers["x-collector-secret"] = config.bridgeSecret ?? "";
   if (mode === "webhook" && config.webhookAuthValue) headers.authorization = config.webhookAuthValue;

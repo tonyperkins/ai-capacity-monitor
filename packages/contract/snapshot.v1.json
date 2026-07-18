@@ -30,7 +30,7 @@
             "enum": ["verified", "unverified"],
             "description": "v1 compatibility status. New producers set verified only for a fresh validated reading; consumers needing the detailed outcome use readState."
           },
-          "readState": { "enum": ["validated", "suspicious-held", "retained-prior", "unauthenticated", "failed"], "description": "Detailed per-metric collection outcome. New producers always include it." },
+          "readState": { "enum": ["validated", "suspicious-held", "retained-prior", "unauthenticated", "permission-needed", "failed"], "description": "Detailed per-metric collection outcome. New producers always include it." },
           "attemptedAt": { "type": "string", "format": "date-time", "description": "When the extension last attempted to read this metric." },
           "errorCode": { "type": ["string", "null"], "maxLength": 80, "description": "Stable, safe diagnostic code; never raw provider page text." },
           "resetAt": { "type": "string", "format": "date-time" },
@@ -61,7 +61,7 @@
         "properties": {
           "key": { "type": "string", "maxLength": 80 },
           "providerId": { "type": "string", "maxLength": 80 },
-          "state": { "enum": ["validated", "suspicious-held", "retained-prior", "unauthenticated", "failed"] },
+          "state": { "enum": ["validated", "suspicious-held", "retained-prior", "unauthenticated", "permission-needed", "failed"] },
           "errorCode": { "type": ["string", "null"], "maxLength": 80 },
           "attemptedAt": { "type": "string", "format": "date-time" }
         }

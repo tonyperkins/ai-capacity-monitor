@@ -39,6 +39,8 @@ consumer compatibility.
 - `retained-prior` — the current read failed, so a prior verified value remains
   visible.
 - `unauthenticated` — the provider page appears to require sign-in.
+- `permission-needed` — the provider was enabled but the user has not granted
+  the extension access to that provider's site.
 - `failed` — no reading is available and there is no prior verified value.
 
 `errorCode` is a stable, safe machine-readable reason such as

@@ -1,4 +1,4 @@
-const METRIC_STATES = new Set(["validated", "suspicious-held", "retained-prior", "unauthenticated", "failed"]);
+const METRIC_STATES = new Set(["validated", "suspicious-held", "retained-prior", "unauthenticated", "permission-needed", "failed"]);
 const LEGACY_STATUSES = new Set(["verified", "unverified"]);
 
 function validDate(value) {

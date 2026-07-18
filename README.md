@@ -12,7 +12,7 @@ A standalone Chrome extension that reads user-visible AI credit balances and sub
 
 ## Security model
 
-The extension never publishes raw page text, browser cookies, API tokens, or account identifiers. Publishing is opt-in and disabled by default: readings stay on the device until the user configures a destination in Settings — either the local bridge (loopback only, authenticated with a per-install secret) or a direct HTTPS webhook (HTTPS required except toward loopback; optional Authorization header). Every destination receives the same versioned `snapshot.v1.json`-conformant payload; failed deliveries queue with bounded exponential-backoff retry and never affect local readings. Provider collection itself is also opt-in per provider.
+The extension never publishes raw page text, browser cookies, API tokens, or account identifiers. Provider site access is opt-in: a fresh install requests no provider access, and Settings requests each provider's exact origin only after the user enables it. Publishing is also opt-in and disabled by default: readings stay on the device until the user configures a destination in Settings — either the local bridge (loopback only, authenticated with a per-install secret) or a direct HTTPS webhook (HTTPS required except toward loopback; optional Authorization header). Every destination receives the same versioned `snapshot.v1.json`-conformant payload; failed deliveries queue with bounded exponential-backoff retry and never affect local readings. Provider collection itself is also opt-in per provider.
 
 ## Development
 

@@ -8,7 +8,7 @@ const states = schema.properties.metrics.items.properties.readState.enum;
 const diagnosticStates = schema.properties.diagnostics.items.properties.state.enum;
 
 test("snapshot v1 carries every explicit collection state", () => {
-  const expected = ["validated", "suspicious-held", "retained-prior", "unauthenticated", "failed"];
+  const expected = ["validated", "suspicious-held", "retained-prior", "unauthenticated", "permission-needed", "failed"];
   assert.deepEqual(statuses, ["verified", "unverified"]);
   assert.deepEqual(states, expected);
   assert.deepEqual(diagnosticStates, expected);

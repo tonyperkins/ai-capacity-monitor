@@ -11,13 +11,22 @@ confirming change, showing a prior value, sign-in required, or unavailable.
 Settings includes a diagnostics section with the last attempt time and safe
 error code for each enabled provider; it never stores raw provider-page text.
 
+## Site permissions
+
+Provider access is optional. A fresh install does not request access to any
+provider site. Turning on a provider in Settings explains the access and asks
+Chrome for that provider's exact origin from the toggle click. If access is
+declined or removed later, the provider remains visible in diagnostics as
+**Permission needed** instead of being reported as a generic read failure.
+Settings can also remove access when a provider is disabled.
+
 The four balance cards have individual refresh controls. A card refresh reads and publishes only that provider's balance, without replacing the other locally stored or dashboard readings. The popup's **Automatic updates** toggle pauses or resumes scheduled collection. The extension's Settings page repeats that toggle and lets you set the schedule from 1 to 1,440 minutes; manual collection remains available while automatic updates are paused.
 
 Every balance card and quota row is also a link to its underlying provider page. Clicking an item focuses the existing matching tab or opens the page in the foreground when it is not already open. The refresh icon on a balance card refreshes that provider instead of navigating.
 
 ## Publisher configuration
 
-Publisher configuration belongs in extension local storage and is disabled by default for a new installation. A publisher is best-effort: collection and the popup must still work when it is unavailable.
+Publisher configuration belongs in extension local storage and is disabled by default for a new installation. A publisher is best-effort: collection and the popup must still work when it is unavailable. Saving a local bridge or HTTPS webhook asks Chrome for the destination's exact origin from that Settings interaction; the scheduler never requests permissions.
 
 ```json
 {

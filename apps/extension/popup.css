@@ -30,8 +30,8 @@ header, footer { display: flex; align-items: center; justify-content: space-betw
 .read-state i { font-style: normal; font-size: 8px; }
 .state-suspicious-held { border-color: #c38a44; background: #211c18; }
 .state-retained-prior { border-color: #796447; background: #1d1b1b; }
-.state-unauthenticated, .state-failed { border-color: #d37b84; background: #28191d; }
-.state-unauthenticated .read-state, .state-failed .read-state { color: #ffb7bd !important; }
+.state-unauthenticated, .state-permission-needed, .state-failed { border-color: #d37b84; background: #28191d; }
+.state-unauthenticated .read-state, .state-permission-needed .read-state, .state-failed .read-state { color: #ffb7bd !important; }
 .state-suspicious-held .meter, .state-retained-prior .meter { opacity: .68; }
 .options { display: flex; align-items: center; justify-content: space-between; margin-top: 8px; }
 .options .option { margin: 0; }

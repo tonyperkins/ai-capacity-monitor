@@ -8,6 +8,7 @@ const stateText = {
   "suspicious-held": "Confirming change",
   "retained-prior": "Showing prior value",
   unauthenticated: "Sign in required",
+  "permission-needed": "Permission needed",
   failed: "Reading unavailable",
 };
 const $ = (id) => document.getElementById(id);
