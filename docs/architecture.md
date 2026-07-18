@@ -28,8 +28,8 @@ metric value, or source-page content.
 
 The default automatic-collection interval is 20 minutes. Credit balances and
 quota windows don't move fast enough to justify tighter polling, and a
-shorter interval reloads open provider tabs — including ones the user is
-actively using — often enough to lose in-progress page state (e.g. an
-unsent draft) and to look like automated traffic to a provider's bot
-detection. Users who want fresher data can lower the interval in Settings or
-use the manual/per-card refresh, which are unaffected by this default.
+shorter interval reloads the extension-owned pinned collection tabs often
+enough to look like automated traffic to a provider's bot detection. The
+collector never reads or reloads provider tabs the user opened. Users who want
+fresher data can lower the interval in Settings or use the manual/per-card
+refresh, which are unaffected by this default.

@@ -10,7 +10,7 @@ function completeOnboarding() {
 
 function renderWelcome() {
   selectedProvider = null;
-  $("screen").innerHTML = `<p class="eyebrow">WELCOME</p><h1>Know your available capacity.</h1><p class="lead">Capacity Monitor reads only the <strong>displayed balances and limits</strong> on provider pages you choose. It never asks for credentials, and nothing leaves this device unless you later configure publishing.</p><div class="notice">During collection, the extension may open or reload a provider page so its value is current. You can choose to close tabs it opened and adjust the collection interval in Settings.</div><div class="actions"><button id="start" type="button">Set up a provider</button></div><p class="footnote">You can skip this and return anytime from Settings.</p>`;
+  $("screen").innerHTML = `<p class="eyebrow">WELCOME</p><h1>Know your available capacity.</h1><p class="lead">Capacity Monitor reads only the <strong>displayed balances and limits</strong> on provider pages you choose. It never asks for credentials, and nothing leaves this device unless you later configure publishing.</p><div class="notice">During collection, the extension uses its own pinned provider tabs so it does not reload pages you are using. You can choose to close those collection tabs and adjust the collection interval in Settings.</div><div class="actions"><button id="start" type="button">Set up a provider</button></div><p class="footnote">You can skip this and return anytime from Settings.</p>`;
   $("start").addEventListener("click", renderProviderList);
 }
 
