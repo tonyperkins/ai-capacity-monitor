@@ -1,0 +1,17 @@
+name: Bug report
+description: Report a reproducible Capacity Monitor problem without account data.
+body:
+  - type: textarea
+    attributes:
+      label: What happened?
+      description: Do not include balances, credentials, cookies, or full page text.
+    validations:
+      required: true
+  - type: input
+    attributes:
+      label: Extension version
+  - type: textarea
+    attributes:
+      label: Steps to reproduce
+    validations:
+      required: true
