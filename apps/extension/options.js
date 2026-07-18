@@ -1,6 +1,9 @@
 const $ = (id) => document.getElementById(id);
 const stateText = { validated: "Validated", "suspicious-held": "Confirming change", "retained-prior": "Showing prior value", unauthenticated: "Sign in required", "permission-needed": "Permission needed", failed: "Reading unavailable" };
 let publishDestinationOrigin = null;
+let savedBridgeSecret = "";
+let savedWebhookAuth = "";
+let savedPublishDisclosureKey = null;
 
 async function hasOriginPermission(origin) {
   return Boolean(origin) && chrome.permissions.contains({ origins: [origin] });
@@ -97,28 +100,52 @@ function renderDiagnostics(enabledIds, metricStates) {
 }
 
 async function load() {
-  const data = await chrome.storage.local.get(["autoCollectionEnabled", "collectionIntervalMinutes", "bridgeUrl", "bridgeSecret", "webhookUrl", "webhookAuthValue", "enabledProviders", "publishMode", "metricStates", "publishDestinationOrigin"]);
+  const data = await chrome.storage.local.get(["autoCollectionEnabled", "collectionIntervalMinutes", "bridgeUrl", "bridgeSecret", "webhookUrl", "webhookAuthValue", "enabledProviders", "publishMode", "metricStates", "publishDestinationOrigin", "publishDisclosureKey"]);
   $("auto-updates").checked = data.autoCollectionEnabled !== false;
   $("interval").value = data.collectionIntervalMinutes ?? 20;
   $("bridge-url").value = data.bridgeUrl ?? "";
-  $("bridge-secret").value = data.bridgeSecret ?? "";
+  savedBridgeSecret = data.bridgeSecret ?? "";
+  $("bridge-secret").value = "";
+  $("bridge-secret").placeholder = savedBridgeSecret ? "Saved — enter a new value to replace" : "Paste the secret printed by the bridge";
   $("webhook-url").value = data.webhookUrl ?? "";
-  $("webhook-auth").value = data.webhookAuthValue ?? "";
+  savedWebhookAuth = data.webhookAuthValue ?? "";
+  $("webhook-auth").value = "";
+  $("webhook-auth").placeholder = savedWebhookAuth ? "Saved — enter a new value to replace" : "Bearer …";
   const mode = data.publishMode ?? "disabled";
   publishDestinationOrigin = data.publishDestinationOrigin ?? null;
+  savedPublishDisclosureKey = data.publishDisclosureKey ?? null;
   document.querySelectorAll("input[name=publish-mode]").forEach((input) => { input.checked = input.value === mode; });
   const enabled = data.enabledProviders ?? [];
   await renderProviders(enabled);
   renderDiagnostics(enabled, data.metricStates ?? {});
+  updatePublishDisclosure();
+}
+
+function publishDisclosureKey(mode, destination) {
+  return mode === "disabled" ? null : `${mode}:${destination}`;
+}
+
+function currentPublishingDestination() {
+  const mode = document.querySelector("input[name=publish-mode]:checked")?.value ?? "disabled";
+  return { mode, destination: mode === "bridge" ? ($("bridge-url").value.trim() || "http://127.0.0.1:8787/collect") : $("webhook-url").value.trim() };
+}
+
+function updatePublishDisclosure() {
+  const { mode, destination } = currentPublishingDestination();
+  const key = publishDisclosureKey(mode, destination);
+  let hostname = "a publishing destination";
+  try { hostname = new URL(destination).host; } catch { /* The validation message explains invalid destinations on save. */ }
+  $("publish-disclosure-text").textContent = mode === "disabled"
+    ? "Publishing is off. Readings remain in this browser profile."
+    : `${hostname} will receive each validated snapshot's provider name, metric label, numeric value, unit, timestamps, reset information, and safe diagnostic state. It will not receive page text, cookies, account identifiers, or saved secrets. You are responsible for the receiving service's privacy practices.`;
+  $("publish-ack").disabled = mode === "disabled";
+  $("publish-ack").checked = key !== null && savedPublishDisclosureKey === key;
 }
 
 async function requestDestinationPermission(mode, destination) {
   if (mode === "disabled") return { ok: true, origin: null };
   const origin = originPatternForUrl(destination);
   if (!origin) return { ok: false, error: "Enter a valid publishing destination." };
-  let label;
-  try { label = new URL(destination).origin; } catch { return { ok: false, error: "Enter a valid publishing destination." }; }
-  if (!window.confirm(`Allow Capacity Monitor to send validated snapshot data to ${label}? The destination never receives page content, cookies, or account identifiers.`)) return { ok: false, error: "Publishing permission was not granted." };
   const granted = await chrome.permissions.request({ origins: [origin] });
   return granted ? { ok: true, origin } : { ok: false, error: "Publishing permission was not granted." };
 }
@@ -133,6 +160,11 @@ $("save").addEventListener("click", async () => {
   const destination = publishMode === "bridge" ? (bridgeUrl || "http://127.0.0.1:8787/collect") : webhookUrl;
   const check = validateDestinationUrl(publishMode, destination);
   if (!check.ok) { $("publish-error").textContent = check.error; return; }
+  const disclosureKey = publishDisclosureKey(publishMode, destination);
+  if (publishMode !== "disabled" && !$("publish-ack").checked) {
+    $("publish-error").textContent = "Review and acknowledge the publishing disclosure before activating this destination.";
+    return;
+  }
   const permission = await requestDestinationPermission(publishMode, destination);
   if (!permission.ok) { $("publish-error").textContent = permission.error; return; }
   if (publishMode === "disabled" && publishDestinationOrigin && window.confirm("Remove Capacity Monitor's access to the previous publishing destination?")) {
@@ -141,12 +173,30 @@ $("save").addEventListener("click", async () => {
   }
   $("publish-error").textContent = "";
   publishDestinationOrigin = permission.origin ?? publishDestinationOrigin;
-  await chrome.storage.local.set({ autoCollectionEnabled: $("auto-updates").checked, collectionIntervalMinutes: interval, enabledProviders, publishMode, bridgeUrl, bridgeSecret: $("bridge-secret").value.trim(), webhookUrl, webhookAuthValue: $("webhook-auth").value.trim(), publishDestinationOrigin });
+  savedPublishDisclosureKey = disclosureKey;
+  await chrome.storage.local.set({ autoCollectionEnabled: $("auto-updates").checked, collectionIntervalMinutes: interval, enabledProviders, publishMode, bridgeUrl, bridgeSecret: $("bridge-secret").value.trim() || savedBridgeSecret, webhookUrl, webhookAuthValue: $("webhook-auth").value.trim() || savedWebhookAuth, publishDestinationOrigin, publishDisclosureKey: savedPublishDisclosureKey });
+  savedBridgeSecret = $("bridge-secret").value.trim() || savedBridgeSecret;
+  savedWebhookAuth = $("webhook-auth").value.trim() || savedWebhookAuth;
+  $("bridge-secret").value = "";
+  $("webhook-auth").value = "";
   $("status").textContent = "Saved";
   setTimeout(() => { $("status").textContent = ""; }, 1800);
 });
 
 $("restart-onboarding").addEventListener("click", () => chrome.tabs.create({ url: chrome.runtime.getURL("onboarding.html"), active: true }));
+document.querySelectorAll("input[name=publish-mode], #bridge-url, #webhook-url").forEach((input) => input.addEventListener("input", updatePublishDisclosure));
+$("publish-ack").addEventListener("change", () => { if (!$("publish-ack").checked) savedPublishDisclosureKey = null; });
+$("delete-local-data").addEventListener("click", async () => {
+  if (!window.confirm("Delete every locally stored Capacity Monitor reading, setting, publishing destination, queue, and saved secret? This cannot be undone.")) return;
+  const result = await chrome.runtime.sendMessage({ type: "delete-local-data" });
+  if (!result?.ok) { $("status").textContent = result?.error ?? "Could not delete local data"; return; }
+  savedBridgeSecret = "";
+  savedWebhookAuth = "";
+  savedPublishDisclosureKey = null;
+  publishDestinationOrigin = null;
+  await load();
+  $("status").textContent = "All local data deleted";
+});
 
 chrome.storage.onChanged.addListener((changes, area) => { if (area === "local" && (changes.metricStates || changes.enabledProviders)) load(); });
 load();
