@@ -18,11 +18,12 @@ async function setProviderEnabled(providerId, enabled) {
   return next;
 }
 
-async function renderProviders(enabledIds = await enabledProviderIds()) {
+async function renderProviders(enabledIds) {
+  const currentEnabledIds = enabledIds ?? await enabledProviderIds();
   const permissions = await Promise.all(PROVIDERS.map(async (provider) => [provider.id, await hasOriginPermission(providerOrigin(provider))]));
   const accessByProvider = Object.fromEntries(permissions);
   $("providers").innerHTML = PROVIDERS.map((provider) => {
-    const enabled = enabledIds.includes(provider.id);
+    const enabled = currentEnabledIds.includes(provider.id);
     const granted = accessByProvider[provider.id];
     const access = granted ? (enabled ? "Access granted" : "Access retained while disabled") : "Permission needed";
     const action = granted ? "Remove access" : "Grant access";
