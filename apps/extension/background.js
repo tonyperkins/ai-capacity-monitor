@@ -8,6 +8,8 @@ const REQUIRED_TABS = [
   { key: "claude-api-credit", url: "https://platform.claude.com/dashboard", match: "platform.claude.com/dashboard" },
   { key: "chatgpt-weekly", url: "https://chatgpt.com/#settings/Usage", match: "#settings/Usage" },
   { key: "claude-usage-credit", keys: ["claude-usage-credit", "claude-session", "claude-weekly", "claude-fable", "claude-usage-cap"], url: "https://claude.ai/new#settings/usage", match: "claude.ai/new#settings/usage" },
+  { key: "xai-credit", url: "https://console.x.ai/", match: "console.x.ai" },
+  { key: "gemini-current-usage", keys: ["gemini-current-usage", "gemini-weekly"], url: "https://gemini.google.com/usage", match: "gemini.google.com/usage" },
 ];
 let activeCollection = null;
 
@@ -269,6 +271,11 @@ function parseVisibleMetrics() {
     addQuota("claude-fable", "Claude Pro", "Weekly · Fable", remainingPercentAfter("Fable"), resetAfter("Fable"));
     addCredit("claude-usage-credit", "Claude.ai Balance", "Usage-credit balance", moneyBefore("Current balance") ?? moneyAfter("Current balance"));
     addQuota("claude-usage-cap", "Claude usage", "Monthly spending cap", remainingPercentAfter("Usage credits"), resetAfter("Usage credits"));
+  }
+  if (location.hostname === "console.x.ai") addCredit("xai-credit", "xAI Balance", "Credits remaining", moneyAfter("Credits remaining"));
+  if (location.hostname === "gemini.google.com") {
+    addQuota("gemini-current-usage", "Gemini Pro", "Current usage", remainingPercentAfter("Current usage"), resetAfter("Current usage"));
+    addQuota("gemini-weekly", "Gemini Pro", "Weekly limit", remainingPercentAfter("Weekly limit"), resetAfter("Weekly limit"));
   }
   return out;
 }

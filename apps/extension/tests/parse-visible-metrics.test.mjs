@@ -136,3 +136,27 @@ test("a metric for an unrelated hostname is never produced", () => {
   setPage({ hostname: "example.com", text: "Credit balance $9.99" });
   assert.deepEqual(parseVisibleMetrics(), []);
 });
+
+test("xAI console credit balance", () => {
+  // Real text captured from console.x.ai's landing page.
+  setPage({
+    hostname: "console.x.ai",
+    text: "Welcome, Tony\nCreate API key\n\nEnable auto top up\n\nNever run out of credits\n\nEnable\nUsage\n24h\n7d\n30d\n90d\n\nSee all\n\nCredits remaining\n\n$10.00\n\nAdd\n\nCredits usage\n\n$0.00\n\nTokens\n\nRequests",
+  });
+  const { "xai-credit": metric } = byKey(parseVisibleMetrics());
+  assert.equal(metric.value, 1000);
+  assert.equal(metric.display, "$10.00");
+});
+
+test("Gemini Pro usage limits (current usage and weekly, both 'used' phrasing)", () => {
+  // Real text captured from gemini.google.com/usage.
+  setPage({
+    hostname: "gemini.google.com",
+    text: "Gemini\nUsage limits\nPRO\n\nYour plan's limits determine how much you can use Gemini over time. Advanced models and features can take up more usage. Learn more\n\nUpdated 1 min ago\n\nCurrent usage\n\n0% used\n\nResets at 10:59 PM\n\nWeekly limit\n\nResets Jul 21 at 1:59 PM\n\n1% used\n\nGet 5x more usage with AI Ultra\n\n$99.99/month\n\nUpgrade",
+  });
+  const results = byKey(parseVisibleMetrics());
+  assert.equal(results["gemini-current-usage"].value, 100);
+  assert.equal(results["gemini-current-usage"].resetText, "Resets at 10:59 PM");
+  assert.equal(results["gemini-weekly"].value, 99);
+  assert.equal(results["gemini-weekly"].resetText, "Resets Jul 21 at 1:59 PM");
+});

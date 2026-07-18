@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "description": "Reads only displayed credit and usage-limit values from your open provider tabs.",
   "permissions": ["alarms", "scripting", "storage", "tabs"],
-  "host_permissions": ["https://app.kilo.ai/*", "https://platform.openai.com/*", "https://platform.claude.com/*", "https://chatgpt.com/*", "https://claude.ai/*", "http://127.0.0.1:8787/*"],
+  "host_permissions": ["https://app.kilo.ai/*", "https://platform.openai.com/*", "https://platform.claude.com/*", "https://chatgpt.com/*", "https://claude.ai/*", "https://console.x.ai/*", "https://gemini.google.com/*", "http://127.0.0.1:8787/*"],
   "background": { "service_worker": "background.js" },
   "action": { "default_title": "Capacity Monitor", "default_popup": "popup.html" },
   "options_ui": { "page": "options.html", "open_in_tab": true }
