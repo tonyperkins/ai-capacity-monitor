@@ -1,9 +1,5 @@
 name: CI
 
-# The dashboard app's test suite is deliberately not run here: it requires a
-# full vinext/wrangler build and exercises starter-template scaffolding rather
-# than product code. Revisit when the dashboard gains contract-consumer tests
-# (see issue #13 / productization plan).
 on:
   push:
     branches: [main]
@@ -24,11 +20,21 @@ jobs:
           node --check apps/extension/popup.js
           node --check apps/extension/options.js
           node --check apps/local-bridge/run.js
+          node --check apps/local-bridge/bridge.js
+          node --check apps/local-bridge/snapshot.js
       - name: Validate snapshot contract is well-formed JSON
         run: node -e "JSON.parse(require('fs').readFileSync('packages/contract/snapshot.v1.json','utf8')); console.log('snapshot.v1.json OK')"
       - name: Run extension test suite
         run: node --test
         working-directory: apps/extension
+      - name: Run local bridge test suite
+        run: node --test
+        working-directory: apps/local-bridge
+      - name: Run dashboard test suite
+        run: |
+          npm ci
+          npm test
+        working-directory: apps/dashboard
       - name: Package extension and verify determinism
         run: |
           python3 scripts/package-extension.py

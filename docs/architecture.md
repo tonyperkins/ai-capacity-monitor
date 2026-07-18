@@ -11,8 +11,18 @@ Consumers receive the `snapshot.v1.json` shape. The payload excludes raw DOM con
 ## Recommended publisher modes
 
 1. Disabled (default): extension popup and local snapshot only.
-2. Local HTTP receiver: `127.0.0.1` service owns remote credentials and forwards the contract.
+2. Local HTTP receiver: `127.0.0.1` service owns remote credentials, validates the contract, retains a bounded on-disk delivery queue, and forwards to a generic webhook.
 3. Direct webhook: explicit user-configured HTTPS URL and authorization header.
+
+## Local bridge behavior
+
+The local bridge is a reference consumer, not a dashboard-specific shim. It
+requires a per-install secret on `POST /collect`, validates every
+`snapshot.v1.json` payload before queuing it, and forwards it through a
+configurable generic webhook destination. A failed destination leaves the
+snapshot in a bounded local queue and retries with backoff. `GET /health`
+reports only redacted operational status and never exposes a secret, token,
+metric value, or source-page content.
 
 ## Collection cadence
 
