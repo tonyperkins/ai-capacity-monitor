@@ -15,7 +15,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (clearingLocalData) return;
   if (Object.keys(changes).length && Object.values(changes).every((change) => change.newValue === undefined)) return;
   if (changes.autoCollectionEnabled || changes.collectionIntervalMinutes) syncSchedule();
-  if (changes.enabledProviders) pruneDisabledMetrics(changes.enabledProviders.newValue ?? []);
+  if (changes.enabledProviders) pruneDisabledProviders(changes.enabledProviders.newValue ?? []);
   if (changes.publishMode || changes.bridgeUrl || changes.webhookUrl) chrome.storage.local.set({ publishRetryCount: 0 }).then(() => drainPublishQueue());
 });
 chrome.alarms.onAlarm.addListener(async (alarm) => {
@@ -55,6 +55,8 @@ async function deleteLocalData() {
   clearingLocalData = true;
   try {
     await Promise.all([chrome.alarms.clear("collect"), chrome.alarms.clear("collect-retry"), chrome.alarms.clear("publish-retry")]);
+    const { collectionTabIds = {} } = await chrome.storage.local.get("collectionTabIds");
+    await closeTabs(Object.values(collectionTabIds));
     await chrome.storage.local.clear();
     return { ok: true };
   } finally {
@@ -76,6 +78,15 @@ async function pruneDisabledMetrics(enabledIds) {
   const keptPending = Object.fromEntries(Object.entries(pendingSuspicion).filter(([key]) => enabledKeys.has(key)));
   const keptStates = Object.fromEntries(Object.entries(metricStates).filter(([key]) => enabledKeys.has(key)));
   await chrome.storage.local.set({ latestMetrics: keptMetrics, pendingSuspicion: keptPending, metricStates: keptStates });
+}
+
+async function pruneDisabledProviders(enabledIds) {
+  await pruneDisabledMetrics(enabledIds);
+  const { collectionTabIds = {} } = await chrome.storage.local.get("collectionTabIds");
+  const retained = Object.fromEntries(Object.entries(collectionTabIds).filter(([providerId]) => enabledIds.includes(providerId)));
+  const staleTabIds = Object.entries(collectionTabIds).filter(([providerId]) => !enabledIds.includes(providerId)).map(([, tabId]) => tabId);
+  if (staleTabIds.length) await closeTabs(staleTabIds);
+  if (staleTabIds.length) await chrome.storage.local.set({ collectionTabIds: retained });
 }
 
 async function focusProvider(key) {
@@ -120,7 +131,7 @@ function collect(selection) {
 async function runCollection({ permitted: targets = [], missing = [] }) {
   const startedAt = Date.now();
   const deadline = startedAt + COLLECTION_DEADLINE_MS;
-  const { tabs, opened } = await ensureDashboardTabs(targets);
+  const { tabs, opened } = await ensureCollectionTabs(targets);
   await refreshTabs(tabs, opened);
   await waitForTabsReady(tabs, targets, deadline);
   const outcomes = [...await readWithRetries(tabs, targets, deadline), ...missing.map((target) => ({ target, metrics: [], state: "permission-needed", errorCode: "permission-needed", attemptedAt: new Date().toISOString() }))];
@@ -195,7 +206,7 @@ async function runCollection({ permitted: targets = [], missing = [] }) {
   const snapshot = { version: "1", collectedAt: new Date(now).toISOString(), metrics: publishedMetrics, diagnostics, issues: diagnostics.filter((diagnostic) => diagnostic.state !== "validated").map(diagnosticMessage) };
   const publish = await publishSnapshot(snapshot);
   const { closeOpenedTabs = false } = await chrome.storage.local.get("closeOpenedTabs");
-  if (closeOpenedTabs && opened.length) await closeTabs(opened);
+  if (closeOpenedTabs) await closeCollectionTabs(tabs.map((tab) => tab.id));
   const freshCount = diagnostics.filter((diagnostic) => diagnostic.state === "validated").length;
   return { ok: true, collectedAt: snapshot.collectedAt, opened, diagnostics, issues: snapshot.issues, publish, freshCount, deadlineReached: Date.now() >= deadline };
 }
@@ -274,19 +285,35 @@ async function setPublishStatus(status) {
   return status;
 }
 
-async function ensureDashboardTabs(targets = PROVIDERS) {
-  const openTabs = await chrome.tabs.query({});
+async function ensureCollectionTabs(targets = PROVIDERS) {
+  const { collectionTabIds = {} } = await chrome.storage.local.get("collectionTabIds");
+  const nextCollectionTabIds = { ...collectionTabIds };
   const tabs = [];
   const opened = [];
   for (const target of targets) {
-    const candidates = openTabs.filter((tab) => tab.url?.includes(target.match));
-    if (candidates.length) tabs.push(candidates.sort((a, b) => (b.lastAccessed ?? 0) - (a.lastAccessed ?? 0))[0]);
-    else {
-      const tab = await chrome.tabs.create({ url: target.url, active: false, pinned: true });
-      tabs.push(tab);
-      opened.push(tab.id);
+    let tab = null;
+    const tabId = nextCollectionTabIds[target.id];
+    if (Number.isInteger(tabId)) {
+      try {
+        const existing = await chrome.tabs.get(tabId);
+        if (existing.url?.includes(target.match)) tab = existing;
+      } catch { /* A manually closed collection tab is recreated below. */ }
     }
+    if (!tab) {
+      tab = await chrome.tabs.create({ url: target.url, active: false, pinned: true });
+      nextCollectionTabIds[target.id] = tab.id;
+      opened.push(tab.id);
+    } else if (!tab.pinned) {
+      try { tab = await chrome.tabs.update(tab.id, { pinned: true }); }
+      catch {
+        tab = await chrome.tabs.create({ url: target.url, active: false, pinned: true });
+        nextCollectionTabIds[target.id] = tab.id;
+        opened.push(tab.id);
+      }
+    }
+    tabs.push(tab);
   }
+  await chrome.storage.local.set({ collectionTabIds: nextCollectionTabIds });
   return { tabs, opened };
 }
 
@@ -345,5 +372,14 @@ function sleep(milliseconds) {
 }
 
 async function closeTabs(tabIds) {
+  if (!tabIds.length) return;
   try { await chrome.tabs.remove(tabIds); } catch { /* Tabs may have been closed manually. */ }
+}
+
+async function closeCollectionTabs(tabIds) {
+  const { collectionTabIds = {} } = await chrome.storage.local.get("collectionTabIds");
+  const closing = new Set(tabIds);
+  const retained = Object.fromEntries(Object.entries(collectionTabIds).filter(([, tabId]) => !closing.has(tabId)));
+  await closeTabs(tabIds);
+  await chrome.storage.local.set({ collectionTabIds: retained });
 }

@@ -11,6 +11,7 @@ test("onboarding explains the boundary and requests provider access from its ena
   assert.match(html, /onboarding\.js/);
   assert.match(source, /reads only the <strong>displayed balances and limits<\/strong>/);
   assert.match(source, /never asks for credentials/);
+  assert.match(source, /uses its own pinned provider tabs/);
   assert.match(source, /chrome\.permissions\.request\(\{ origins: \[providerOrigin\(selectedProvider\)\] \}\)/);
   assert.match(source, /type: "collect-provider"/);
   assert.match(source, /onboardingCompleted: true/);

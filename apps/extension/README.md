@@ -2,7 +2,7 @@
 
 The extension is independently useful: it collects provider readings, keeps the last verified snapshot in `chrome.storage.local`, and presents it in the toolbar popup.
 
-Each collection refreshes provider pages that were already open before reading the displayed values; newly created tabs are allowed to load normally without an unnecessary second navigation. Kilo is collected from its dedicated Credits page. If a credit balance temporarily reports a suspicious zero, the extension preserves the prior verified value and schedules a narrowly scoped confirmation collection instead of overwriting it. The popup also includes an optional **Close provider tabs opened by Capacity Monitor after collection** setting. It affects only tabs the extension created; tabs you already had open are never closed.
+Each collection uses one extension-owned, pinned background tab per enabled provider. The extension never reads or reloads a provider tab you opened yourself. A new collection tab loads normally on its first use; later collections reload that same pinned tab before reading the displayed value. Kilo is collected from its dedicated Credits page. If a credit balance temporarily reports a suspicious zero, the extension preserves the prior verified value and schedules a narrowly scoped confirmation collection instead of overwriting it. The popup also includes an optional **Close Capacity Monitor collection tabs after collection** setting for people who prefer not to keep the pinned tabs around.
 
 Each adapter declares its own readiness and retry policy. A collection has a
 30-second global deadline, so one unavailable provider cannot keep a scheduled

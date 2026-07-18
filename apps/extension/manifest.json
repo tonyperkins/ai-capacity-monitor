@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "AI Capacity Monitor",
   "version": "0.1.0",
-  "description": "Reads only displayed credit and usage-limit values from your open provider tabs.",
+  "description": "Reads displayed credit and usage-limit values in its own pinned provider tabs.",
   "icons": { "16": "assets/icon-16.png", "32": "assets/icon-32.png", "48": "assets/icon-48.png", "128": "assets/icon-128.png" },
   "permissions": ["alarms", "scripting", "storage", "tabs"],
   "optional_host_permissions": ["https://app.kilo.ai/*", "https://platform.openai.com/*", "https://platform.claude.com/*", "https://chatgpt.com/*", "https://claude.ai/*", "https://console.x.ai/*", "https://gemini.google.com/*", "https://one.google.com/*", "https://*/*", "http://127.0.0.1/*", "http://localhost/*"],
