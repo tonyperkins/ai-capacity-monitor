@@ -21,6 +21,7 @@ SHIPPED = [
     "background.js",
     "providers.js",
     "publishing.js",
+    "permissions.js",
     "popup.html",
     "popup.css",
     "popup.js",

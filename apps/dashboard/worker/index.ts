@@ -60,7 +60,7 @@ type SnapshotMetric = {
   value: number;
   unit: "usd" | "percent" | "count";
   status: "verified" | "unverified";
-  readState?: "validated" | "suspicious-held" | "retained-prior" | "unauthenticated" | "failed";
+  readState?: "validated" | "suspicious-held" | "retained-prior" | "unauthenticated" | "permission-needed" | "failed";
   attemptedAt?: string;
   errorCode?: string | null;
   resetAt?: string;
@@ -90,7 +90,7 @@ function isValidMetric(value: unknown): value is SnapshotMetric {
     Number.isFinite(m.value) &&
     (m.unit === "usd" || m.unit === "percent" || m.unit === "count") &&
     (m.status === "verified" || m.status === "unverified") &&
-    (m.readState === undefined || m.readState === "validated" || m.readState === "suspicious-held" || m.readState === "retained-prior" || m.readState === "unauthenticated" || m.readState === "failed") &&
+    (m.readState === undefined || m.readState === "validated" || m.readState === "suspicious-held" || m.readState === "retained-prior" || m.readState === "unauthenticated" || m.readState === "permission-needed" || m.readState === "failed") &&
     (m.attemptedAt === undefined || typeof m.attemptedAt === "string") &&
     (m.errorCode === undefined || m.errorCode === null || (typeof m.errorCode === "string" && m.errorCode.length <= 80)) &&
     (m.display === undefined || (typeof m.display === "string" && m.display.length <= 40)) &&
@@ -105,7 +105,7 @@ function isValidDiagnostic(value: unknown): value is SnapshotDiagnostic {
   const diagnostic = value as Record<string, unknown>;
   return typeof diagnostic.key === "string" && diagnostic.key.length > 0 && diagnostic.key.length <= 80 &&
     typeof diagnostic.providerId === "string" && diagnostic.providerId.length > 0 && diagnostic.providerId.length <= 80 &&
-    (diagnostic.state === "validated" || diagnostic.state === "suspicious-held" || diagnostic.state === "retained-prior" || diagnostic.state === "unauthenticated" || diagnostic.state === "failed") &&
+    (diagnostic.state === "validated" || diagnostic.state === "suspicious-held" || diagnostic.state === "retained-prior" || diagnostic.state === "unauthenticated" || diagnostic.state === "permission-needed" || diagnostic.state === "failed") &&
     (diagnostic.errorCode === undefined || diagnostic.errorCode === null || (typeof diagnostic.errorCode === "string" && diagnostic.errorCode.length <= 80)) &&
     typeof diagnostic.attemptedAt === "string" && !Number.isNaN(Date.parse(diagnostic.attemptedAt));
 }
