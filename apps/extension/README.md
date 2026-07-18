@@ -20,6 +20,11 @@ declined or removed later, the provider remains visible in diagnostics as
 **Permission needed** instead of being reported as a generic read failure.
 Settings can also remove access when a provider is disabled.
 
+On a fresh install, Capacity Monitor opens a guided setup tab. It explains the
+local-only boundary, takes one provider at a time through permission and
+sign-in on the provider's own page, and asks the user to confirm the first
+reading. It can be skipped and restarted with **Run guided setup** in Settings.
+
 The four balance cards have individual refresh controls. A card refresh reads and publishes only that provider's balance, without replacing the other locally stored or dashboard readings. The popup's **Automatic updates** toggle pauses or resumes scheduled collection. The extension's Settings page repeats that toggle and lets you set the schedule from 1 to 1,440 minutes; manual collection remains available while automatic updates are paused.
 
 Every balance card and quota row is also a link to its underlying provider page. Clicking an item focuses the existing matching tab or opens the page in the foreground when it is not already open. The refresh icon on a balance card refreshes that provider instead of navigating.

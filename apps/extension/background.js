@@ -82,6 +82,7 @@ async function initializeSchedule(details) {
     ...(config.publishMode === undefined ? { publishMode: details?.reason === "update" ? "bridge" : "disabled" } : {}),
   });
   await syncSchedule();
+  if (details?.reason === "install") await chrome.tabs.create({ url: chrome.runtime.getURL("onboarding.html"), active: true });
 }
 
 async function syncSchedule() {
