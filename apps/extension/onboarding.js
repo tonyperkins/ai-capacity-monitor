@@ -64,8 +64,8 @@ async function collectProvider() {
 }
 
 function renderConfirmation(readings) {
-  $("screen").innerHTML = `<p class="eyebrow">FIRST READING</p><h1>Does this look right?</h1><p class="lead">We found the following displayed value${readings.length === 1 ? "" : "s"} from ${selectedProvider.name}.</p><div class="result">${readings.map((metric) => `<strong>${metric.provider}: ${metric.display}</strong><span>${metric.label}</span>`).join("")}</div><div class="actions"><button id="correct" type="button">Yes, keep it</button><button id="retry" class="subtle" type="button">Try again</button><button id="another" class="subtle" type="button">Set up another provider</button></div>`;
-  $("correct").addEventListener("click", completeOnboarding);
+  $("screen").innerHTML = `<p class="eyebrow">FIRST READING</p><h1>Does this look right?</h1><p class="lead">We found the following displayed value${readings.length === 1 ? "" : "s"} from ${selectedProvider.name}.</p><div class="result">${readings.map((metric) => `<strong>${metric.provider}: ${metric.display}</strong><span>${metric.label}</span>`).join("")}</div><div class="actions"><button id="finish" type="button">Yes, finish setup</button><button id="another" class="subtle" type="button">Yes, set up another provider</button><button id="retry" class="subtle" type="button">Try again</button></div>`;
+  $("finish").addEventListener("click", completeOnboarding);
   $("retry").addEventListener("click", () => renderCollectionPrompt(`Return to the open ${selectedProvider.name} tab if needed, then try again.`));
   $("another").addEventListener("click", renderProviderList);
 }

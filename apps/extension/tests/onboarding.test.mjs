@@ -14,6 +14,8 @@ test("onboarding explains the boundary and requests provider access from its ena
   assert.match(source, /chrome\.permissions\.request\(\{ origins: \[providerOrigin\(selectedProvider\)\] \}\)/);
   assert.match(source, /type: "collect-provider"/);
   assert.match(source, /onboardingCompleted: true/);
+  assert.match(source, /Yes, set up another provider/);
+  assert.match(source, /Yes, finish setup/);
 });
 
 test("fresh installation opens onboarding and the package includes it", () => {
