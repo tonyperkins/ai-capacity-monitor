@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { FakeElement, loadProviders, setPage } from "./helpers.mjs";
 
-const { PROVIDERS, readProviderMetrics } = await loadProviders();
+const { PROVIDERS, inspectProviderPage, readProviderMetrics } = await loadProviders();
 
 // Runs the engine across every registered provider spec, mirroring the old
 // single-function behavior: only the spec matching the current hostname
@@ -20,6 +20,7 @@ test("registry is structurally sound", () => {
   assert.equal(new Set(hostnames).size, hostnames.length, "hostnames must be unique across providers");
   for (const provider of PROVIDERS) {
     assert.ok(provider.id && provider.name && provider.hostname && provider.url && provider.match, `${provider.id ?? "?"}: id/name/hostname/url/match required`);
+    assert.ok(provider.collection?.readyTimeoutMs > 0 && provider.collection?.maxAttempts > 0 && provider.collection?.retryDelayMs > 0, `${provider.id}: collection policy required`);
     assert.ok(provider.metrics.length > 0, `${provider.id}: at least one metric`);
     for (const metric of provider.metrics) {
       assert.ok(metric.key && metric.provider && metric.label, `${metric.key ?? "?"}: key/provider/label required`);
@@ -33,6 +34,22 @@ test("registry is structurally sound", () => {
       if (metric.read.type === "quota") assert.equal(metric.unit, "percent", `${metric.key}: quota reads must be unit percent`);
     }
   }
+});
+
+test("login pages are classified without exposing page text", () => {
+  const provider = PROVIDERS.find((candidate) => candidate.id === "openai-platform");
+  setPage({
+    hostname: "platform.openai.com",
+    href: "https://platform.openai.com/login",
+    text: "Welcome back\nLog in to continue",
+  });
+  assert.deepEqual(inspectProviderPage(provider), { state: "unauthenticated", errorCode: "sign-in-required" });
+});
+
+test("an authenticated provider page is ready for parsing", () => {
+  const provider = PROVIDERS.find((candidate) => candidate.id === "openai-platform");
+  setPage({ hostname: "platform.openai.com", text: "Usage\nCredit balance\n$6.89" });
+  assert.deepEqual(inspectProviderPage(provider), { state: "ready", errorCode: null });
 });
 
 test("OpenAI API credit balance", () => {

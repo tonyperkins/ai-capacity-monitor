@@ -21,6 +21,8 @@ const PROVIDERS = [
     hostname: "app.kilo.ai",
     url: "https://app.kilo.ai/credits",
     match: "app.kilo.ai/credits",
+    collection: { readyTimeoutMs: 12000, maxAttempts: 4, retryDelayMs: 1500 },
+    authMarkers: ["log in", "sign in", "continue with google"],
     metrics: [
       { key: "kilo-credit", provider: "Kilo Balance", label: "Remaining credits", kind: "credit", unit: "usd", read: { type: "labeled-card-money", labels: ["Remaining Credits", "Available Credits", "Credit Balance", "Current Balance"] } },
     ],
@@ -31,6 +33,8 @@ const PROVIDERS = [
     hostname: "platform.openai.com",
     url: "https://platform.openai.com/home",
     match: "platform.openai.com/home",
+    collection: { readyTimeoutMs: 12000, maxAttempts: 3, retryDelayMs: 1500 },
+    authMarkers: ["log in", "sign in", "continue with google"],
     metrics: [
       { key: "openai-api-credit", provider: "OpenAI API Balance", label: "Prepaid API credit", kind: "credit", unit: "usd", read: { type: "money-after", label: "Credit balance" } },
     ],
@@ -41,6 +45,8 @@ const PROVIDERS = [
     hostname: "chatgpt.com",
     url: "https://chatgpt.com/#settings/Usage",
     match: "#settings/Usage",
+    collection: { readyTimeoutMs: 12000, maxAttempts: 4, retryDelayMs: 1500 },
+    authMarkers: ["log in", "sign in", "continue with google"],
     metrics: [
       { key: "chatgpt-weekly", provider: "ChatGPT Plus", label: "Weekly usage", kind: "quota", unit: "percent", resetWindowMs: 7 * 24 * 60 * 60 * 1000, read: { type: "quota", label: "Weekly usage limit" } },
     ],
@@ -51,6 +57,8 @@ const PROVIDERS = [
     hostname: "claude.ai",
     url: "https://claude.ai/new#settings/usage",
     match: "claude.ai/new#settings/usage",
+    collection: { readyTimeoutMs: 15000, maxAttempts: 4, retryDelayMs: 1500 },
+    authMarkers: ["log in", "sign in", "continue with google"],
     metrics: [
       { key: "claude-usage-credit", provider: "Claude.ai Balance", label: "Usage-credit balance", kind: "credit", unit: "usd", read: { type: "money-before-or-after", label: "Current balance" } },
       { key: "claude-session", provider: "Claude Pro", label: "Current session", kind: "quota", unit: "percent", resetWindowMs: 5 * 60 * 60 * 1000, read: { type: "quota", label: "Current session" } },
@@ -65,6 +73,8 @@ const PROVIDERS = [
     hostname: "platform.claude.com",
     url: "https://platform.claude.com/dashboard",
     match: "platform.claude.com/dashboard",
+    collection: { readyTimeoutMs: 12000, maxAttempts: 3, retryDelayMs: 1500 },
+    authMarkers: ["log in", "sign in", "continue with google"],
     metrics: [
       { key: "claude-api-credit", provider: "Claude API Balance", label: "Organization credits", kind: "credit", unit: "usd", read: { type: "money-after", label: "Organization credits" } },
     ],
@@ -75,6 +85,8 @@ const PROVIDERS = [
     hostname: "console.x.ai",
     url: "https://console.x.ai/",
     match: "console.x.ai",
+    collection: { readyTimeoutMs: 12000, maxAttempts: 3, retryDelayMs: 1500 },
+    authMarkers: ["log in", "sign in", "continue with google"],
     metrics: [
       { key: "xai-credit", provider: "xAI Balance", label: "Credits remaining", kind: "credit", unit: "usd", read: { type: "money-after", label: "Credits remaining" } },
     ],
@@ -85,6 +97,8 @@ const PROVIDERS = [
     hostname: "gemini.google.com",
     url: "https://gemini.google.com/usage",
     match: "gemini.google.com/usage",
+    collection: { readyTimeoutMs: 12000, maxAttempts: 4, retryDelayMs: 1500 },
+    authMarkers: ["sign in", "choose an account", "continue with google"],
     metrics: [
       { key: "gemini-current-usage", provider: "Gemini Pro", label: "Current usage", kind: "quota", unit: "percent", resetWindowMs: 24 * 60 * 60 * 1000, read: { type: "quota", label: "Current usage" } },
       { key: "gemini-weekly", provider: "Gemini Pro", label: "Weekly limit", kind: "quota", unit: "percent", resetWindowMs: 7 * 24 * 60 * 60 * 1000, read: { type: "quota", label: "Weekly limit" } },
@@ -96,11 +110,27 @@ const PROVIDERS = [
     hostname: "one.google.com",
     url: "https://one.google.com/ai/activity",
     match: "one.google.com/ai/activity",
+    collection: { readyTimeoutMs: 12000, maxAttempts: 3, retryDelayMs: 1500 },
+    authMarkers: ["sign in", "choose an account", "continue with google"],
     metrics: [
       { key: "google-ai-credit", provider: "Google AI Credits", label: "AI credits", kind: "credit", unit: "count", read: { type: "count-after", label: "AI credits" } },
     ],
   },
 ];
+
+// This intentionally performs only a coarse, user-facing classification. It
+// never returns page text. The collector still treats the parser result as the
+// authoritative source of a metric value.
+function inspectProviderPage(spec) {
+  if (location.hostname !== spec.hostname) return { state: "failed", errorCode: "wrong-provider-page" };
+  const href = String(location.href ?? "").toLowerCase();
+  const text = String(document.body?.innerText ?? "").toLowerCase();
+  const routeLooksLikeLogin = /\/(?:login|log-in|signin|sign-in|auth)(?:[/?#]|$)/.test(href);
+  const hasAuthMarker = (spec.authMarkers ?? []).some((marker) => text.includes(String(marker).toLowerCase()));
+  return routeLooksLikeLogin || hasAuthMarker
+    ? { state: "unauthenticated", errorCode: "sign-in-required" }
+    : { state: "ready", errorCode: null };
+}
 
 // Fixed parser engine. Injected into provider tabs with a single provider's
 // spec as its argument, so it must stay fully self-contained: no references
