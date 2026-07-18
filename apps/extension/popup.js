@@ -3,14 +3,7 @@ const metricDefinitions = Object.fromEntries(allMetrics.map((metric) => [metric.
 const balanceOrder = allMetrics.filter((metric) => metric.kind === "credit").map((metric) => metric.key);
 const quotaOrder = allMetrics.filter((metric) => metric.kind === "quota").map((metric) => metric.key);
 const resetWindows = Object.fromEntries(allMetrics.filter((metric) => metric.resetWindowMs).map((metric) => [metric.key, metric.resetWindowMs]));
-const stateText = {
-  validated: "Fresh reading",
-  "suspicious-held": "Confirming change",
-  "retained-prior": "Showing prior value",
-  unauthenticated: "Sign in required",
-  "permission-needed": "Permission needed",
-  failed: "Reading unavailable",
-};
+const stateText = POPUP_COPY.states;
 const $ = (id) => document.getElementById(id);
 let collectedAt = null;
 
@@ -20,11 +13,11 @@ function oldestVisibleCollectedAt(metrics = []) {
 }
 
 function renderUpdated() {
-  if (!collectedAt) { $("updated").textContent = "No local snapshot yet"; return; }
+  if (!collectedAt) { $("updated").textContent = POPUP_COPY.noSnapshot; return; }
   const age = Math.max(0, Math.floor((Date.now() - new Date(collectedAt).getTime()) / 1000));
   const minutes = Math.floor(age / 60);
   const elapsed = minutes >= 60 ? `${Math.floor(minutes / 60)}h ${minutes % 60}m ago` : `${minutes}m ${age % 60}s ago`;
-  $("updated").textContent = `Updated ${new Date(collectedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })} - ${elapsed}`;
+  $("updated").textContent = `Updated ${formatShortTime(collectedAt)} - ${elapsed}`;
 }
 
 function timeRemainingPercent(metric) {
@@ -64,9 +57,10 @@ function render(metrics = [], metricStates = {}, enabledKeys = null) {
     const diagnostic = metricStates[key];
     const state = stateFor(metric, diagnostic);
     const provider = escapeHtml(metric?.provider ?? definition.provider);
-    const display = escapeHtml(metric?.display ?? "—");
+    const display = escapeHtml(formatMetric(metric));
     const title = state === "validated" ? `Open ${provider}` : `${stateText[state]}. ${diagnostic?.errorCode ?? "Open the provider page for details."}`;
-    return `<article class="card provider-link state-${state}" data-key="${key}" tabindex="0" role="button" title="${escapeHtml(title)}"><div class="card-top"><span>${provider}</span><button class="card-refresh" data-key="${key}" type="button" title="Refresh ${provider}" aria-label="Refresh ${provider}">↻</button></div><strong>${display}</strong>${stateMarkup(state, diagnostic?.errorCode ?? metric?.errorCode)}</article>`;
+    const accessibleName = `${provider} ${display}. ${stateText[state]}. Activate to open provider.`;
+    return `<article class="card provider-link state-${state}" data-key="${key}" tabindex="0" role="button" aria-label="${escapeHtml(accessibleName)}" title="${escapeHtml(title)}"><div class="card-top"><span>${provider}</span><button class="card-refresh" data-key="${key}" type="button" title="Refresh ${provider}" aria-label="Refresh ${provider}">↻</button></div><strong aria-hidden="true">${display}</strong>${stateMarkup(state, diagnostic?.errorCode ?? metric?.errorCode)}</article>`;
   }).join("");
   $("quotas").innerHTML = visibleQuotas.map((key) => {
     const definition = metricDefinitions[key];
@@ -75,13 +69,14 @@ function render(metrics = [], metricStates = {}, enabledKeys = null) {
     const state = stateFor(metric, diagnostic);
     const provider = escapeHtml(metric?.provider ?? definition.provider);
     const label = escapeHtml(metric?.label ?? definition.label);
-    const display = escapeHtml(metric?.display ?? "—");
+    const display = escapeHtml(formatMetric(metric));
     const resetText = metric?.resetText ? escapeHtml(metric.resetText) : "";
     const timePercent = metric ? timeRemainingPercent(metric) : null;
-    const meter = metric ? `<div class="meter" aria-label="${label}: ${display} remaining"><i style="width:${Math.max(0, Math.min(100, metric.value))}%"></i></div>` : "";
-    const timeMeter = timePercent === null ? "" : `<div class="time-meter" title="Time remaining until reset" aria-label="Time remaining until reset"><i style="width:${timePercent}%"></i></div>`;
+    const meter = metric ? `<div class="meter" role="progressbar" aria-label="${label}: ${display} remaining" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.max(0, Math.min(100, metric.value))}"><i style="width:${Math.max(0, Math.min(100, metric.value))}%"></i></div>` : "";
+    const timeMeter = timePercent === null ? "" : `<div class="time-meter" role="progressbar" aria-label="Time remaining until reset" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(timePercent)}" aria-valuetext="${resetText || "Time remaining until reset"}"><i style="width:${timePercent}%"></i></div>`;
     const title = state === "validated" ? `Open ${provider}` : `${stateText[state]}. ${diagnostic?.errorCode ?? "Open the provider page for details."}`;
-    return `<article class="quota provider-link state-${state}" data-key="${key}" tabindex="0" role="button" title="${escapeHtml(title)}"><div class="quota-top"><div><span>${provider} · ${label}</span>${resetText ? `<small>${resetText}</small>` : stateMarkup(state, diagnostic?.errorCode ?? metric?.errorCode)}</div><strong>${display}${metric ? " remaining" : ""}</strong></div>${meter}${timeMeter}</article>`;
+    const accessibleName = `${provider}, ${label}: ${display}${metric ? " remaining" : ""}. ${resetText || stateText[state]}. Activate to open provider.`;
+    return `<article class="quota provider-link state-${state}" data-key="${key}" tabindex="0" role="button" aria-label="${escapeHtml(accessibleName)}" title="${escapeHtml(title)}"><div class="quota-top"><div><span>${provider} · ${label}</span>${resetText ? `<small>${resetText}</small>` : stateMarkup(state, diagnostic?.errorCode ?? metric?.errorCode)}</div><strong aria-hidden="true">${display}${metric ? " remaining" : ""}</strong></div>${meter}${timeMeter}</article>`;
   }).join("");
   document.querySelectorAll(".provider-link").forEach((item) => {
     item.addEventListener("click", (event) => { if (!event.target.closest(".card-refresh")) focusProvider(item.dataset.key); });
@@ -91,9 +86,9 @@ function render(metrics = [], metricStates = {}, enabledKeys = null) {
 }
 
 async function focusProvider(key) {
-  $("status").textContent = "OPENING";
+  $("status").textContent = POPUP_COPY.opening;
   const result = await chrome.runtime.sendMessage({ type: "focus-provider", key });
-  if (!result?.ok) { $("status").textContent = "CHECK TABS"; $("updated").textContent = result?.error ?? "Unable to open provider"; $("updated").className = "error"; }
+  if (!result?.ok) { $("status").textContent = POPUP_COPY.checkTabs; $("updated").textContent = result?.error ?? "Unable to open provider"; $("updated").className = "error"; }
 }
 
 async function load() {
@@ -108,24 +103,24 @@ async function load() {
   collectedAt = oldestVisibleCollectedAt(visibleMetrics) ?? data.lastCollectedAt ?? null;
   renderUpdated();
   const attention = Object.values(visibleStates).some((state) => state.state !== "validated");
-  $("status").textContent = !enabledIds.length ? "SET UP" : attention ? "ATTENTION" : data.lastCollectedAt ? "READY" : "WAITING";
+  $("status").textContent = !enabledIds.length ? POPUP_COPY.setup : attention ? POPUP_COPY.attention : data.lastCollectedAt ? POPUP_COPY.ready : POPUP_COPY.waiting;
   if (!enabledIds.length) $("updated").textContent = data.onboardingCompleted ? "No providers yet — choose providers in Settings" : "Set up a provider in Settings";
 }
 
 function applyCollectResult(result) {
-  if (!result?.ok) { $("status").textContent = "CHECK TABS"; $("updated").textContent = result?.error ?? "Collection failed"; $("updated").className = "error"; return; }
+  if (!result?.ok) { $("status").textContent = POPUP_COPY.checkTabs; $("updated").textContent = result?.error ?? "Collection failed"; $("updated").className = "error"; return; }
   $("updated").className = "";
-  if (result.diagnostics?.some((diagnostic) => diagnostic.state !== "validated")) { $("status").textContent = "ATTENTION"; $("updated").textContent = "Some readings need attention — see card status"; return; }
+  if (result.diagnostics?.some((diagnostic) => diagnostic.state !== "validated")) { $("status").textContent = POPUP_COPY.attention; $("updated").textContent = "Some readings need attention — see card status"; return; }
   const publish = result.publish?.state;
-  if (publish === "delivered") { $("status").textContent = "SENT"; renderUpdated(); }
-  else if (publish === "delayed") { $("status").textContent = "QUEUED"; $("updated").textContent = "Saved locally · delivery delayed, retrying automatically"; }
-  else if (publish === "rejected" || publish === "failed") { $("status").textContent = "SAVED LOCAL"; $("updated").textContent = `Saved locally · ${result.publish.detail ?? "delivery failed"}`; }
-  else { $("status").textContent = "READY"; renderUpdated(); }
+  if (publish === "delivered") { $("status").textContent = POPUP_COPY.sent; renderUpdated(); }
+  else if (publish === "delayed") { $("status").textContent = POPUP_COPY.queued; $("updated").textContent = "Saved locally · delivery delayed, retrying automatically"; }
+  else if (publish === "rejected" || publish === "failed") { $("status").textContent = POPUP_COPY.savedLocal; $("updated").textContent = `Saved locally · ${result.publish.detail ?? "delivery failed"}`; }
+  else { $("status").textContent = POPUP_COPY.ready; renderUpdated(); }
 }
 
 async function refreshProvider(button) {
   button.disabled = true;
-  $("status").textContent = "SYNCING";
+  $("status").textContent = POPUP_COPY.syncing;
   const result = await chrome.runtime.sendMessage({ type: "collect-provider", key: button.dataset.key });
   await load();
   applyCollectResult(result);
@@ -139,7 +134,7 @@ $("collect").addEventListener("click", async () => {
   const button = $("collect");
   button.disabled = true;
   button.textContent = "Collecting";
-  $("status").textContent = "SYNCING";
+  $("status").textContent = POPUP_COPY.syncing;
   const result = await chrome.runtime.sendMessage({ type: "collect" });
   await load();
   applyCollectResult(result);
