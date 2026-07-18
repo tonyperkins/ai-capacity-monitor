@@ -1,0 +1,43 @@
+name: CI
+
+# The dashboard app's test suite is deliberately not run here: it requires a
+# full vinext/wrangler build and exercises starter-template scaffolding rather
+# than product code. Revisit when the dashboard gains contract-consumer tests
+# (see issue #13 / productization plan).
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  extension:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Syntax-check shipped scripts
+        run: |
+          node --check apps/extension/background.js
+          node --check apps/extension/popup.js
+          node --check apps/extension/options.js
+          node --check apps/local-bridge/run.js
+      - name: Validate snapshot contract is well-formed JSON
+        run: node -e "JSON.parse(require('fs').readFileSync('packages/contract/snapshot.v1.json','utf8')); console.log('snapshot.v1.json OK')"
+      - name: Run extension test suite
+        run: node --test tests/
+        working-directory: apps/extension
+      - name: Package extension and verify determinism
+        run: |
+          python3 scripts/package-extension.py
+          first=$(sha256sum dist/*.zip | awk '{print $1}')
+          rm -rf dist
+          python3 scripts/package-extension.py
+          second=$(sha256sum dist/*.zip | awk '{print $1}')
+          if [ "$first" != "$second" ]; then
+            echo "packaging is not deterministic: $first != $second"
+            exit 1
+          fi
+          echo "deterministic package: $first"
