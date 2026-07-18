@@ -16,6 +16,8 @@ test("onboarding explains the boundary and requests provider access from its ena
   assert.match(source, /onboardingCompleted: true/);
   assert.match(source, /Yes, set up another provider/);
   assert.match(source, /Yes, finish setup/);
+  assert.match(source, /onboardingConfirmedProviders/);
+  assert.match(source, /Configured/);
 });
 
 test("fresh installation opens onboarding and the package includes it", () => {

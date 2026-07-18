@@ -14,10 +14,16 @@ function renderWelcome() {
   $("start").addEventListener("click", renderProviderList);
 }
 
-function renderProviderList() {
-  $("screen").innerHTML = `<p class="eyebrow">STEP 1 OF 3</p><h1>Choose one provider to start.</h1><p class="lead">You can add the others later. Each provider gets its own site permission.</p><div class="providers">${PROVIDERS.map((provider) => `<article class="provider"><div><strong>${provider.name}</strong><span>${provider.metrics.map((metric) => metric.label).join(" · ")}</span></div><button data-provider="${provider.id}" type="button">Set up</button></article>`).join("")}</div><div class="actions"><button id="back" class="subtle" type="button">Back</button></div>`;
+async function renderProviderList() {
+  const { onboardingConfirmedProviders = [] } = await chrome.storage.local.get("onboardingConfirmedProviders");
+  const configured = new Set(onboardingConfirmedProviders);
+  const remaining = PROVIDERS.filter((provider) => !configured.has(provider.id));
+  const heading = configured.size ? "Add another provider." : "Choose one provider to start.";
+  const description = configured.size ? "Configured providers stay enabled. Choose another when you are ready." : "You can add the others later. Each provider gets its own site permission.";
+  $("screen").innerHTML = `<p class="eyebrow">${configured.size ? "ADD PROVIDERS" : "STEP 1 OF 3"}</p><h1>${heading}</h1><p class="lead">${description}</p><div class="providers">${PROVIDERS.map((provider) => configured.has(provider.id) ? `<article class="provider configured"><div><strong>${provider.name}</strong><span>${provider.metrics.map((metric) => metric.label).join(" · ")}</span></div><span class="configured-label">Configured</span></article>` : `<article class="provider"><div><strong>${provider.name}</strong><span>${provider.metrics.map((metric) => metric.label).join(" · ")}</span></div><button data-provider="${provider.id}" type="button">Set up</button></article>`).join("")}</div>${remaining.length ? `<div class="actions"><button id="back" class="subtle" type="button">Back</button></div>` : `<div class="notice">All available providers are configured. You can adjust them any time in Settings.</div><div class="actions"><button id="finish" type="button">Finish setup</button></div>`}`;
   document.querySelectorAll("[data-provider]").forEach((button) => button.addEventListener("click", () => renderPermission(button.dataset.provider)));
-  $("back").addEventListener("click", renderWelcome);
+  if ($("back")) $("back").addEventListener("click", renderWelcome);
+  if ($("finish")) $("finish").addEventListener("click", completeOnboarding);
 }
 
 function renderPermission(providerId) {
@@ -65,9 +71,24 @@ async function collectProvider() {
 
 function renderConfirmation(readings) {
   $("screen").innerHTML = `<p class="eyebrow">FIRST READING</p><h1>Does this look right?</h1><p class="lead">We found the following displayed value${readings.length === 1 ? "" : "s"} from ${selectedProvider.name}.</p><div class="result">${readings.map((metric) => `<strong>${metric.provider}: ${metric.display}</strong><span>${metric.label}</span>`).join("")}</div><div class="actions"><button id="finish" type="button">Yes, finish setup</button><button id="another" class="subtle" type="button">Yes, set up another provider</button><button id="retry" class="subtle" type="button">Try again</button></div>`;
-  $("finish").addEventListener("click", completeOnboarding);
+  $("finish").addEventListener("click", confirmAndFinish);
   $("retry").addEventListener("click", () => renderCollectionPrompt(`Return to the open ${selectedProvider.name} tab if needed, then try again.`));
-  $("another").addEventListener("click", renderProviderList);
+  $("another").addEventListener("click", confirmAndAddAnother);
+}
+
+async function confirmProvider() {
+  const { onboardingConfirmedProviders = [] } = await chrome.storage.local.get("onboardingConfirmedProviders");
+  await chrome.storage.local.set({ onboardingConfirmedProviders: [...new Set([...onboardingConfirmedProviders, selectedProvider.id])] });
+}
+
+async function confirmAndFinish() {
+  await confirmProvider();
+  completeOnboarding();
+}
+
+async function confirmAndAddAnother() {
+  await confirmProvider();
+  renderProviderList();
 }
 
 $("skip").addEventListener("click", completeOnboarding);
