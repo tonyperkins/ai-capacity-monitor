@@ -20,6 +20,7 @@ SHIPPED = [
     "manifest.json",
     "background.js",
     "providers.js",
+    "publishing.js",
     "popup.html",
     "popup.css",
     "popup.js",

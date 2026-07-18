@@ -1,3 +1,21 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="options.css"><title>Capacity Monitor settings</title></head>
-<body><main><p class="eyebrow">CAPACITY MONITOR</p><h1>Collection settings</h1><p class="intro">Choose whether the extension collects in the background and how often it checks your provider pages.</p><section><p class="section-label">Providers</p><div id="providers" class="providers"></div><p class="hint">Only enabled providers are read. Enabling a provider lets the extension open and reload that provider's page during collection; disabling one stops its collection and removes its stored readings.</p></section><section><label class="toggle"><input id="auto-updates" type="checkbox"> <span>Automatic updates</span></label><label class="interval">Collection interval <input id="interval" type="number" min="1" max="1440" step="1" inputmode="numeric"> <span>minutes</span></label><p class="hint">Manual collection and the individual card refresh buttons remain available when automatic updates are paused.</p></section><section><label class="interval">Local bridge secret <input id="bridge-secret" type="password" autocomplete="off" placeholder="Paste the secret printed by the bridge"></label><p class="hint">Only needed if you run the optional local bridge. The bridge prints this secret to its console the first time it starts, and rejects collections that don't include it.</p></section><footer><span id="status" aria-live="polite"></span><button id="save" type="button">Save settings</button></footer></main><script src="providers.js"></script><script src="options.js"></script></body></html>
+<body><main>
+<p class="eyebrow">CAPACITY MONITOR</p>
+<h1>Collection settings</h1>
+<p class="intro">Choose which providers are read, whether the extension collects in the background, and where snapshots are published.</p>
+<section><p class="section-label">Providers</p><div id="providers" class="providers"></div><p class="hint">Only enabled providers are read. Enabling a provider lets the extension open and reload that provider's page during collection; disabling one stops its collection and removes its stored readings.</p></section>
+<section><p class="section-label">Collection</p><label class="toggle"><input id="auto-updates" type="checkbox"> <span>Automatic updates</span></label><label class="interval">Collection interval <input id="interval" type="number" min="1" max="1440" step="1" inputmode="numeric"> <span>minutes</span></label><p class="hint">Manual collection and the individual card refresh buttons remain available when automatic updates are paused.</p></section>
+<section><p class="section-label">Publishing</p>
+<label class="toggle"><input type="radio" name="publish-mode" value="disabled"> <span>Off — readings stay on this device (default)</span></label>
+<label class="toggle"><input type="radio" name="publish-mode" value="bridge"> <span>Local bridge</span></label>
+<label class="toggle"><input type="radio" name="publish-mode" value="webhook"> <span>HTTPS webhook</span></label>
+<label class="field">Bridge URL <input id="bridge-url" type="text" autocomplete="off" placeholder="http://127.0.0.1:8787/collect"></label>
+<label class="field">Bridge secret <input id="bridge-secret" type="password" autocomplete="off" placeholder="Paste the secret printed by the bridge"></label>
+<label class="field">Webhook URL <input id="webhook-url" type="text" autocomplete="off" placeholder="https://example.com/capacity"></label>
+<label class="field">Webhook Authorization header <input id="webhook-auth" type="password" autocomplete="off" placeholder="Bearer …"></label>
+<p class="hint">When enabled, each collection posts the snapshot contract payload (validated metrics and diagnostics only — never page content) to the chosen destination. Failed deliveries queue and retry with backoff; local readings are never affected. The bridge must be a loopback address; a webhook must use HTTPS.</p>
+<p id="publish-error" class="save-error" aria-live="polite"></p>
+</section>
+<footer><span id="status" aria-live="polite"></span><button id="save" type="button">Save settings</button></footer>
+</main><script src="providers.js"></script><script src="publishing.js"></script><script src="options.js"></script></body></html>

@@ -1,10 +1,10 @@
-importScripts("providers.js");
+importScripts("providers.js", "publishing.js");
 
-const ENDPOINT = "http://127.0.0.1:8787/collect";
 const SUSPICION_CONFIRMATIONS_REQUIRED = 2;
 const SUSPICION_MAX_AGE_MS = 10 * 60 * 1000;
 const SUSPICION_RETRY_DELAY_MS = 30 * 1000;
 let activeCollection = null;
+let activeDrain = null;
 
 chrome.runtime.onInstalled.addListener((details) => initializeSchedule(details));
 chrome.runtime.onStartup.addListener(syncSchedule);
@@ -12,8 +12,12 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== "local") return;
   if (changes.autoCollectionEnabled || changes.collectionIntervalMinutes) syncSchedule();
   if (changes.enabledProviders) pruneDisabledMetrics(changes.enabledProviders.newValue ?? []);
+  if (changes.publishMode || changes.bridgeUrl || changes.webhookUrl) {
+    chrome.storage.local.set({ publishRetryCount: 0 }).then(() => drainPublishQueue());
+  }
 });
 chrome.alarms.onAlarm.addListener(async (alarm) => {
+  if (alarm.name === "publish-retry") return drainPublishQueue();
   if (alarm.name !== "collect" && alarm.name !== "collect-retry") return;
   const { autoCollectionEnabled = true } = await chrome.storage.local.get("autoCollectionEnabled");
   if (!autoCollectionEnabled) return;
@@ -71,13 +75,17 @@ async function focusProvider(key) {
 }
 
 async function initializeSchedule(details) {
-  const config = await chrome.storage.local.get(["autoCollectionEnabled", "collectionIntervalMinutes", "enabledProviders"]);
+  const config = await chrome.storage.local.get(["autoCollectionEnabled", "collectionIntervalMinutes", "enabledProviders", "publishMode"]);
   await chrome.storage.local.set({
     ...(config.autoCollectionEnabled === undefined ? { autoCollectionEnabled: true } : {}),
     ...(config.collectionIntervalMinutes === undefined ? { collectionIntervalMinutes: 20 } : {}),
     // Fresh installs start with no providers enabled; an upgrade from a
     // pre-settings version keeps its existing collect-everything behavior.
     ...(config.enabledProviders === undefined ? { enabledProviders: details?.reason === "update" ? PROVIDERS.map((provider) => provider.id) : [] } : {}),
+    // Publishing is opt-in for fresh installs; an upgrade keeps the previous
+    // always-publish-to-local-bridge behavior so an existing pipeline doesn't
+    // silently stop.
+    ...(config.publishMode === undefined ? { publishMode: details?.reason === "update" ? "bridge" : "disabled" } : {}),
   });
   await syncSchedule();
 }
@@ -121,23 +129,75 @@ async function runCollection(targets) {
     return { ok: false, error: "No verified values were collected; retry shortly.", issues };
   }
   await chrome.storage.local.set({ latestMetrics, lastCollectedAt: collectedAt, lastIssues: issues });
-  const { closeOpenedTabs = false, bridgeSecret = "" } = await chrome.storage.local.get(["closeOpenedTabs", "bridgeSecret"]);
+  const { closeOpenedTabs = false } = await chrome.storage.local.get("closeOpenedTabs");
   const snapshot = {
     version: "1",
     collectedAt,
     metrics: verifiedMetrics.map((metric) => ({ ...metric, unit: metric.unit ?? (metric.kind === "credit" ? "usd" : "percent"), status: "verified" })),
     issues,
   };
-  try {
-    const response = await fetch(ENDPOINT, { method: "POST", headers: { "content-type": "application/json", "x-collector-secret": bridgeSecret }, body: JSON.stringify(snapshot) });
-    const result = await response.json().catch(() => ({}));
-    if (!response.ok) return { ok: false, error: "Dashboard delivery failed; local snapshot was saved." };
-    if (closeOpenedTabs && opened.length) await closeTabs(opened);
-    return { ok: true, accepted: result.accepted, collectedAt, opened, issues };
-  } catch {
-    if (closeOpenedTabs && opened.length) await closeTabs(opened);
-    return { ok: false, error: "Dashboard delivery failed; local snapshot was saved." };
+  const publish = await publishSnapshot(snapshot);
+  if (closeOpenedTabs && opened.length) await closeTabs(opened);
+  return { ok: true, collectedAt, opened, issues, publish };
+}
+
+async function publishSnapshot(snapshot) {
+  const { publishMode = "disabled" } = await chrome.storage.local.get("publishMode");
+  if (publishMode === "disabled") return { state: "disabled" };
+  const { publishQueue = [] } = await chrome.storage.local.get("publishQueue");
+  await chrome.storage.local.set({ publishQueue: [...publishQueue, snapshot].slice(-PUBLISH_QUEUE_LIMIT) });
+  return drainPublishQueue();
+}
+
+function drainPublishQueue() {
+  if (activeDrain) return activeDrain;
+  activeDrain = runDrain().finally(() => { activeDrain = null; });
+  return activeDrain;
+}
+
+async function runDrain() {
+  const config = await chrome.storage.local.get(["publishMode", "bridgeUrl", "bridgeSecret", "webhookUrl", "webhookAuthValue", "publishQueue", "publishRetryCount"]);
+  const mode = config.publishMode ?? "disabled";
+  if (mode === "disabled") {
+    // Opting out discards anything still queued: nothing leaves the device.
+    await chrome.alarms.clear("publish-retry");
+    await chrome.storage.local.set({ publishQueue: [], publishRetryCount: 0, publishStatus: { state: "disabled" } });
+    return { state: "disabled" };
   }
+  const url = mode === "bridge" ? (config.bridgeUrl || "http://127.0.0.1:8787/collect") : config.webhookUrl;
+  const check = validateDestinationUrl(mode, url);
+  if (!check.ok) return setPublishStatus({ state: "failed", detail: check.error });
+  const headers = { "content-type": "application/json" };
+  if (mode === "bridge") headers["x-collector-secret"] = config.bridgeSecret ?? "";
+  if (mode === "webhook" && config.webhookAuthValue) headers["authorization"] = config.webhookAuthValue;
+  let queue = config.publishQueue ?? [];
+  let rejected = null;
+  while (queue.length) {
+    let response;
+    try {
+      response = await fetch(url, { method: "POST", headers, body: JSON.stringify(queue[0]) });
+    } catch {
+      return schedulePublishRetry(queue, config, "destination unreachable");
+    }
+    if (response.status === 429 || response.status >= 500) return schedulePublishRetry(queue, config, `destination responded ${response.status}`);
+    queue = queue.slice(1);
+    await chrome.storage.local.set({ publishQueue: queue, publishRetryCount: 0 });
+    if (!response.ok) rejected = `destination rejected a snapshot (${response.status})`;
+  }
+  await chrome.alarms.clear("publish-retry");
+  return setPublishStatus(rejected ? { state: "rejected", detail: rejected } : { state: "delivered", at: new Date().toISOString() });
+}
+
+async function schedulePublishRetry(queue, config, reason) {
+  const retryCount = (config.publishRetryCount ?? 0) + 1;
+  await chrome.storage.local.set({ publishQueue: queue, publishRetryCount: retryCount });
+  chrome.alarms.create("publish-retry", { when: Date.now() + computePublishBackoffMs(retryCount) });
+  return setPublishStatus({ state: "delayed", detail: reason, at: new Date().toISOString() });
+}
+
+async function setPublishStatus(status) {
+  await chrome.storage.local.set({ publishStatus: status });
+  return status;
 }
 
 function isSuspiciousReading(metric, prior) {
