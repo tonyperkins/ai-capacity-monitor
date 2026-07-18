@@ -22,6 +22,10 @@ SHIPPED = [
     "providers.js",
     "formatting.js",
     "strings.js",
+    "assets/icon-16.png",
+    "assets/icon-32.png",
+    "assets/icon-48.png",
+    "assets/icon-128.png",
     "publishing.js",
     "permissions.js",
     "popup.html",
@@ -34,13 +38,13 @@ SHIPPED = [
     "onboarding.css",
     "onboarding.js",
 ]
-EXCLUDED = {"tests", "package.json", "README.md", "node_modules"}
+EXCLUDED = {"assets", "tests", "package.json", "README.md", "node_modules"}
 FIXED_DATE = (2000, 1, 1, 0, 0, 0)
 
 
 def main():
     present = set(os.listdir(SRC))
-    missing = [name for name in SHIPPED if name not in present]
+    missing = [name for name in SHIPPED if not os.path.isfile(os.path.join(SRC, name))]
     if missing:
         sys.exit(f"error: shipped files missing from {SRC}: {', '.join(missing)}")
     unaccounted = present - set(SHIPPED) - EXCLUDED
