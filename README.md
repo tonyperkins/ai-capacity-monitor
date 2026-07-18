@@ -19,6 +19,24 @@ destination you choose.
 It never asks for credentials and does not store or publish raw provider-page
 text, browser cookies, or account identifiers.
 
+## See it in use
+
+The toolbar popup puts balances, plan limits, reset windows, and freshness in
+one place. Individual readings can open or focus their provider page.
+
+<img src="docs/images/popup.png" alt="AI Capacity Monitor toolbar popup showing balances, usage limits, reset windows, and collection controls" width="475">
+
+Guided setup requests access one provider at a time and keeps previously
+configured providers enabled while you add more.
+
+<img src="docs/images/onboarding-welcome.png" alt="AI Capacity Monitor welcome screen explaining its local-first data boundary" width="420">
+<img src="docs/images/onboarding-providers.png" alt="AI Capacity Monitor guided setup showing configured providers" width="420">
+
+Settings show enabled providers, collection controls, safe diagnostics,
+optional publishing, and local-data deletion.
+
+<img src="docs/images/settings.png" alt="AI Capacity Monitor settings page" width="560">
+
 ## Install
 
 For local or pre-Store testing, follow the [install guide](docs/install.md).
