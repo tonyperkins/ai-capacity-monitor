@@ -94,7 +94,7 @@ Each provider adapter should declare:
 
 The collector should only know how to open/focus/reload a page, request an
 adapter reading, validate it, and assemble a snapshot. It must not know that
-Kilo has a special zero case or that Claude has Fable.
+Kilo has a special zero case or that Claude has a provider-specific quota.
 
 ### 2. Make user choices settings, not source edits
 
