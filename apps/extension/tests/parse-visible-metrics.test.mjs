@@ -154,7 +154,7 @@ test("Claude quotas: 'remaining' phrasing is used as-is", () => {
   assert.equal(metric.display, "88%");
 });
 
-test("Claude usage-credit balance and monthly spending cap on a full settings page", () => {
+test("Claude current usage page omits the retired Fable metric", () => {
   setPage({
     hostname: "claude.ai",
     text: [
@@ -162,9 +162,6 @@ test("Claude usage-credit balance and monthly spending cap on a full settings pa
       "7% used",
       "Resets in 3 hr 52 min",
       "All models",
-      "88% remaining",
-      "Resets in 16 hr 52 min",
-      "Fable",
       "88% remaining",
       "Resets in 16 hr 52 min",
       "$10.93",
@@ -177,7 +174,7 @@ test("Claude usage-credit balance and monthly spending cap on a full settings pa
   const results = byKey(parse());
   assert.equal(results["claude-session"].value, 93);
   assert.equal(results["claude-weekly"].value, 88);
-  assert.equal(results["claude-fable"].value, 88);
+  assert.equal(results["claude-fable"], undefined);
   assert.equal(results["claude-usage-credit"].value, 1093);
   assert.equal(results["claude-usage-credit"].display, "$10.93");
   assert.equal(results["claude-usage-cap"].value, 29);

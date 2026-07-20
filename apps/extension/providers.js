@@ -63,7 +63,9 @@ const PROVIDERS = [
       { key: "claude-usage-credit", provider: "Claude.ai Balance", label: "Usage-credit balance", kind: "credit", unit: "usd", read: { type: "money-before-or-after", label: "Current balance" } },
       { key: "claude-session", provider: "Claude Pro", label: "Current session", kind: "quota", unit: "percent", resetWindowMs: 5 * 60 * 60 * 1000, read: { type: "quota", label: "Current session" } },
       { key: "claude-weekly", provider: "Claude Pro", label: "Weekly · all models", kind: "quota", unit: "percent", resetWindowMs: 7 * 24 * 60 * 60 * 1000, read: { type: "quota", label: "All models" } },
-      { key: "claude-fable", provider: "Claude Pro", label: "Weekly · Fable", kind: "quota", unit: "percent", resetWindowMs: 7 * 24 * 60 * 60 * 1000, read: { type: "quota", label: "Fable" } },
+      // Claude removed the Fable-specific limit from its current usage page.
+      // Restore this metric if the provider exposes that separate limit again.
+      // { key: "claude-fable", provider: "Claude Pro", label: "Weekly · Fable", kind: "quota", unit: "percent", resetWindowMs: 7 * 24 * 60 * 60 * 1000, read: { type: "quota", label: "Fable" } },
       { key: "claude-usage-cap", provider: "Claude usage", label: "Monthly spending cap", kind: "quota", unit: "percent", resetWindowMs: 31 * 24 * 60 * 60 * 1000, read: { type: "quota", label: "Usage credits" } },
     ],
   },
