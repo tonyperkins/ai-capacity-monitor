@@ -101,7 +101,11 @@ async function load() {
   render(visibleMetrics, visibleStates, enabledKeys);
   $("close-opened-tabs").checked = Boolean(data.closeOpenedTabs);
   $("auto-updates").checked = data.autoCollectionEnabled !== false;
-  collectedAt = oldestVisibleCollectedAt(visibleMetrics) ?? data.lastCollectedAt ?? null;
+  // This is the time the collection pass finished, not the age of every
+  // individual reading. A retained prior reading is already marked on its
+  // card; using its timestamp here made a fresh successful collection look
+  // stale in the popup footer.
+  collectedAt = data.lastCollectedAt ?? oldestVisibleCollectedAt(visibleMetrics) ?? null;
   renderUpdated();
   const attention = Object.values(visibleStates).some((state) => state.state !== "validated");
   $("status").textContent = !enabledIds.length ? POPUP_COPY.setup : attention ? POPUP_COPY.attention : data.lastCollectedAt ? POPUP_COPY.ready : POPUP_COPY.waiting;

@@ -28,3 +28,7 @@ test("popup exposes semantic regions, card labels, and meter values", () => {
   assert.match(packageScript, /"formatting\.js"/);
   assert.match(packageScript, /"strings\.js"/);
 });
+
+test("popup footer prefers the completed collection timestamp over an older retained reading", () => {
+  assert.match(popupSource, /collectedAt = data\.lastCollectedAt \?\? oldestVisibleCollectedAt\(visibleMetrics\) \?\? null/);
+});
