@@ -87,7 +87,8 @@ function render(metrics = [], metricStates = {}, enabledKeys = null) {
 
 async function focusProvider(key) {
   $("status").textContent = POPUP_COPY.opening;
-  const result = await chrome.runtime.sendMessage({ type: "focus-provider", key });
+  const currentWindow = await chrome.windows.getCurrent();
+  const result = await chrome.runtime.sendMessage({ type: "focus-provider", key, windowId: currentWindow.id });
   if (!result?.ok) { $("status").textContent = POPUP_COPY.checkTabs; $("updated").textContent = result?.error ?? "Unable to open provider"; $("updated").className = "error"; }
 }
 

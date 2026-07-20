@@ -4,11 +4,14 @@ import { readFile } from "node:fs/promises";
 
 const source = await readFile(new URL("../background.js", import.meta.url), "utf8");
 const collectionTabs = source.match(/async function ensureCollectionTabs[\s\S]*?\n}\n\nasync function refreshTabs/)[0];
+const optionsHtml = await readFile(new URL("../options.html", import.meta.url), "utf8");
+const optionsSource = await readFile(new URL("../options.js", import.meta.url), "utf8");
+const popupSource = await readFile(new URL("../popup.js", import.meta.url), "utf8");
 
 test("collection uses extension-owned pinned tabs instead of matching ordinary provider tabs", () => {
   assert.match(collectionTabs, /collectionTabIds/);
   assert.doesNotMatch(collectionTabs, /chrome\.tabs\.query/);
-  assert.match(collectionTabs, /chrome\.tabs\.create\(\{ url: target\.url, active: false, pinned: true \}\)/);
+  assert.match(collectionTabs, /pinned: true/);
   assert.match(collectionTabs, /chrome\.storage\.local\.set\(\{ collectionTabIds: nextCollectionTabIds \}\)/);
 });
 
@@ -16,4 +19,21 @@ test("collection tabs are cleaned up when requested or when their provider is di
   assert.match(source, /if \(closeOpenedTabs\) await closeCollectionTabs\(tabs\.map\(\(tab\) => tab\.id\)\)/);
   assert.match(source, /async function pruneDisabledProviders/);
   assert.match(source, /await closeTabs\(staleTabIds\)/);
+});
+
+test("a default-off minimized collection window isolates automatic collection", () => {
+  assert.match(optionsHtml, /id="collection-window"/);
+  assert.match(optionsSource, /useCollectionWindow: \$\("collection-window"\)\.checked/);
+  assert.match(source, /useCollectionWindow: false/);
+  assert.match(source, /chrome\.windows\.create\(\{ url: initialUrl, state: "minimized", focused: false \}\)/);
+  assert.match(collectionTabs, /await ensureCollectionWindow\(targets\[0\]\.url\)/);
+  assert.doesNotMatch(collectionTabs, /focused:\s*true/);
+});
+
+test("sign-in actions open a foreground provider tab instead of the collection tab", () => {
+  assert.match(source, /!collectionTabIdSet\.has\(tab\.id\)/);
+  assert.match(source, /createProperties\.windowId = foregroundWindowId/);
+  assert.match(popupSource, /chrome\.windows\.getCurrent\(\)/);
+  assert.match(optionsSource, /Sign in to \$\{provider\.name\}/);
+  assert.match(optionsSource, /chrome\.windows\.getCurrent\(\)/);
 });

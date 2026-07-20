@@ -95,13 +95,29 @@ function renderDiagnostics(enabledIds, metricStates) {
       detail.textContent = `${metric.label}: ${stateText[diagnostic.state] ?? diagnostic.state} · ${diagnostic.errorCode ?? "ok"} · ${at}`;
       row.append(detail);
     }
+    const signInMetric = metrics.find(({ diagnostic }) => diagnostic.state === "unauthenticated")?.metric;
+    if (signInMetric) {
+      const action = document.createElement("button");
+      action.className = "secondary";
+      action.type = "button";
+      action.textContent = `Sign in to ${provider.name}`;
+      action.addEventListener("click", () => focusProvider(signInMetric.key));
+      row.append(action);
+    }
     return row;
   }));
 }
 
+async function focusProvider(key) {
+  const currentWindow = await chrome.windows.getCurrent();
+  const result = await chrome.runtime.sendMessage({ type: "focus-provider", key, windowId: currentWindow.id });
+  if (!result?.ok) $("status").textContent = result?.error ?? "Could not open provider";
+}
+
 async function load() {
-  const data = await chrome.storage.local.get(["autoCollectionEnabled", "collectionIntervalMinutes", "bridgeUrl", "bridgeSecret", "webhookUrl", "webhookAuthValue", "enabledProviders", "publishMode", "metricStates", "publishDestinationOrigin", "publishDisclosureKey"]);
+  const data = await chrome.storage.local.get(["autoCollectionEnabled", "useCollectionWindow", "collectionIntervalMinutes", "bridgeUrl", "bridgeSecret", "webhookUrl", "webhookAuthValue", "enabledProviders", "publishMode", "metricStates", "publishDestinationOrigin", "publishDisclosureKey"]);
   $("auto-updates").checked = data.autoCollectionEnabled !== false;
+  $("collection-window").checked = Boolean(data.useCollectionWindow);
   $("interval").value = data.collectionIntervalMinutes ?? 20;
   $("bridge-url").value = data.bridgeUrl ?? "";
   savedBridgeSecret = data.bridgeSecret ?? "";
@@ -174,7 +190,7 @@ $("save").addEventListener("click", async () => {
   $("publish-error").textContent = "";
   publishDestinationOrigin = permission.origin ?? publishDestinationOrigin;
   savedPublishDisclosureKey = disclosureKey;
-  await chrome.storage.local.set({ autoCollectionEnabled: $("auto-updates").checked, collectionIntervalMinutes: interval, enabledProviders, publishMode, bridgeUrl, bridgeSecret: $("bridge-secret").value.trim() || savedBridgeSecret, webhookUrl, webhookAuthValue: $("webhook-auth").value.trim() || savedWebhookAuth, publishDestinationOrigin, publishDisclosureKey: savedPublishDisclosureKey });
+  await chrome.storage.local.set({ autoCollectionEnabled: $("auto-updates").checked, useCollectionWindow: $("collection-window").checked, collectionIntervalMinutes: interval, enabledProviders, publishMode, bridgeUrl, bridgeSecret: $("bridge-secret").value.trim() || savedBridgeSecret, webhookUrl, webhookAuthValue: $("webhook-auth").value.trim() || savedWebhookAuth, publishDestinationOrigin, publishDisclosureKey: savedPublishDisclosureKey });
   savedBridgeSecret = $("bridge-secret").value.trim() || savedBridgeSecret;
   savedWebhookAuth = $("webhook-auth").value.trim() || savedWebhookAuth;
   $("bridge-secret").value = "";

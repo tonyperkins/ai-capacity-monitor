@@ -30,6 +30,8 @@ The default automatic-collection interval is 20 minutes. Credit balances and
 quota windows don't move fast enough to justify tighter polling, and a
 shorter interval reloads the extension-owned pinned collection tabs often
 enough to look like automated traffic to a provider's bot detection. The
-collector never reads or reloads provider tabs the user opened. Users who want
-fresher data can lower the interval in Settings or use the manual/per-card
-refresh, which are unaffected by this default.
+collector never reads or reloads provider tabs the user opened. An optional,
+default-off minimized collection window can isolate those tabs from the main
+Chrome window; collection never restores or focuses it. Users who want fresher
+data can lower the interval in Settings or use the manual/per-card refresh,
+which are unaffected by this default.
