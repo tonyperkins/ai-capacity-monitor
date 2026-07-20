@@ -66,7 +66,7 @@ const PROVIDERS = [
       // Claude removed the Fable-specific limit from its current usage page.
       // Restore this metric if the provider exposes that separate limit again.
       // { key: "claude-fable", provider: "Claude Pro", label: "Weekly · Fable", kind: "quota", unit: "percent", resetWindowMs: 7 * 24 * 60 * 60 * 1000, read: { type: "quota", label: "Fable" } },
-      { key: "claude-usage-cap", provider: "Claude usage", label: "Monthly spending cap", kind: "quota", unit: "percent", resetWindowMs: 31 * 24 * 60 * 60 * 1000, read: { type: "quota", label: "Usage credits" } },
+      { key: "claude-usage-cap", provider: "Claude usage", label: "Monthly spending cap", kind: "quota", unit: "percent", resetWindowMs: 31 * 24 * 60 * 60 * 1000, read: { type: "unlimited-or-quota", label: "Usage credits", unlimitedMarker: "Monthly spend limit" } },
     ],
   },
   {
@@ -173,13 +173,24 @@ function readProviderMetrics(spec) {
     for (let index = lowerText.indexOf(lowerLabel); index >= 0; index = lowerText.indexOf(lowerLabel, index + lowerLabel.length)) indexes.push(index);
     return indexes.reverse().map((index) => text.slice(index, index + 120)).find((window) => /\d+%\s*(?:remaining|used)/i.test(window));
   };
+  const labelWindows = (label, length = 600) => {
+    const lowerText = text.toLowerCase();
+    const lowerLabel = label.toLowerCase();
+    const indexes = [];
+    for (let index = lowerText.indexOf(lowerLabel); index >= 0; index = lowerText.indexOf(lowerLabel, index + lowerLabel.length)) indexes.push(index);
+    return indexes.reverse().map((index) => text.slice(index, index + length));
+  };
   const remainingPercentAfter = (label) => {
     const match = quotaWindow(label)?.match(/(\d+)%\s*(remaining|used)/i);
     if (!match) return null;
     const amount = Number(match[1]);
     return /used/i.test(match[2]) ? 100 - amount : amount;
   };
-  const resetAfter = (label) => quotaWindow(label)?.match(/Resets[^\n]+/i)?.[0];
+  const resetAfter = (label) => quotaWindow(label)?.match(/Resets[^\n]+/i)?.[0] ?? labelWindows(label).map((window) => window.match(/Resets[^\n]+/i)?.[0]).find(Boolean);
+  const unlimitedAfter = (label, marker) => labelWindows(label).some((window) => {
+    const escapedMarker = marker.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return new RegExp(`(?:unlimited[\\s\\S]{0,120}${escapedMarker}|${escapedMarker}[\\s\\S]{0,120}unlimited)`, "i").test(window);
+  });
   const money = (value) => {
     const normalized = value.replace(/[\s$,()]/g, "");
     return Number(value.includes("(") ? `-${normalized}` : normalized);
@@ -201,7 +212,11 @@ function readProviderMetrics(spec) {
     } else if (read.type === "count-after") {
       const count = countAfter(read.label);
       if (Number.isFinite(count)) out.push({ ...base, value: count, display: `${count.toLocaleString()} credits` });
-    } else if (read.type === "quota") {
+    } else if (read.type === "quota" || read.type === "unlimited-or-quota") {
+      if (read.type === "unlimited-or-quota" && unlimitedAfter(read.label, read.unlimitedMarker)) {
+        out.push({ ...base, value: 100, display: "Unlimited", availability: "unlimited", resetText: resetAfter(read.label) });
+        continue;
+      }
       const remaining = remainingPercentAfter(read.label);
       if (Number.isFinite(remaining)) out.push({ ...base, value: remaining, display: `${remaining}%`, resetText: resetAfter(read.label) });
     }

@@ -70,13 +70,14 @@ function render(metrics = [], metricStates = {}, enabledKeys = null) {
     const provider = escapeHtml(metric?.provider ?? definition.provider);
     const label = escapeHtml(metric?.label ?? definition.label);
     const display = escapeHtml(formatMetric(metric));
+    const isUnlimited = metric?.availability === "unlimited";
     const resetText = metric?.resetText ? escapeHtml(metric.resetText) : "";
     const timePercent = metric ? timeRemainingPercent(metric) : null;
-    const meter = metric ? `<div class="meter" role="progressbar" aria-label="${label}: ${display} remaining" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.max(0, Math.min(100, metric.value))}"><i style="width:${Math.max(0, Math.min(100, metric.value))}%"></i></div>` : "";
+    const meter = metric && !isUnlimited ? `<div class="meter" role="progressbar" aria-label="${label}: ${display} remaining" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.max(0, Math.min(100, metric.value))}"><i style="width:${Math.max(0, Math.min(100, metric.value))}%"></i></div>` : "";
     const timeMeter = timePercent === null ? "" : `<div class="time-meter" role="progressbar" aria-label="Time remaining until reset" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(timePercent)}" aria-valuetext="${resetText || "Time remaining until reset"}"><i style="width:${timePercent}%"></i></div>`;
     const title = state === "validated" ? `Open ${provider}` : `${stateText[state]}. ${diagnostic?.errorCode ?? "Open the provider page for details."}`;
-    const accessibleName = `${provider}, ${label}: ${display}${metric ? " remaining" : ""}. ${resetText || stateText[state]}. Activate to open provider.`;
-    return `<article class="quota provider-link state-${state}" data-key="${key}" tabindex="0" role="button" aria-label="${escapeHtml(accessibleName)}" title="${escapeHtml(title)}"><div class="quota-top"><div><span>${provider} · ${label}</span>${resetText ? `<small>${resetText}</small>` : stateMarkup(state, diagnostic?.errorCode ?? metric?.errorCode)}</div><strong aria-hidden="true">${display}${metric ? " remaining" : ""}</strong></div>${meter}${timeMeter}</article>`;
+    const accessibleName = `${provider}, ${label}: ${display}${metric && !isUnlimited ? " remaining" : ""}. ${resetText || stateText[state]}. Activate to open provider.`;
+    return `<article class="quota provider-link state-${state}" data-key="${key}" tabindex="0" role="button" aria-label="${escapeHtml(accessibleName)}" title="${escapeHtml(title)}"><div class="quota-top"><div><span>${provider} · ${label}</span>${resetText ? `<small>${resetText}</small>` : stateMarkup(state, diagnostic?.errorCode ?? metric?.errorCode)}</div><strong aria-hidden="true">${display}${metric && !isUnlimited ? " remaining" : ""}</strong></div>${meter}${timeMeter}</article>`;
   }).join("");
   document.querySelectorAll(".provider-link").forEach((item) => {
     item.addEventListener("click", (event) => { if (!event.target.closest(".card-refresh")) focusProvider(item.dataset.key); });

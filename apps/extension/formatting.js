@@ -1,5 +1,6 @@
 function formatMetric(metric, locale = navigator.language) {
   if (!metric) return "—";
+  if (metric.availability === "unlimited") return metric.display ?? "Unlimited";
   if (metric.unit === "usd") return new Intl.NumberFormat(locale, { style: "currency", currency: "USD" }).format(metric.value / 100);
   if (metric.unit === "percent") return new Intl.NumberFormat(locale, { style: "percent", maximumFractionDigits: 0 }).format(metric.value / 100);
   if (metric.unit === "count") return new Intl.NumberFormat(locale).format(metric.value);

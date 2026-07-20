@@ -31,7 +31,7 @@ test("registry is structurally sound", () => {
       const moneyReads = ["money-after", "money-before-or-after", "labeled-card-money"];
       if (moneyReads.includes(metric.read.type)) assert.equal(metric.unit, "usd", `${metric.key}: money reads must be unit usd`);
       if (metric.read.type === "count-after") assert.equal(metric.unit, "count", `${metric.key}: counted reads must be unit count, never usd`);
-      if (metric.read.type === "quota") assert.equal(metric.unit, "percent", `${metric.key}: quota reads must be unit percent`);
+      if (["quota", "unlimited-or-quota"].includes(metric.read.type)) assert.equal(metric.unit, "percent", `${metric.key}: quota reads must be unit percent`);
     }
   }
 });
@@ -179,6 +179,25 @@ test("Claude current usage page omits the retired Fable metric", () => {
   assert.equal(results["claude-usage-credit"].display, "$10.93");
   assert.equal(results["claude-usage-cap"].value, 29);
   assert.equal(results["claude-usage-cap"].resetText, "Resets Aug 1");
+});
+
+test("Claude usage credits reports an unlimited monthly spend limit without retaining a stale zero-percent cap", () => {
+  setPage({
+    hostname: "claude.ai",
+    text: [
+      "Usage credits",
+      "$56.65 spent",
+      "Resets Aug 1",
+      "Unlimited",
+      "Monthly spend limit",
+      "$95.24",
+      "Current balance",
+    ].join("\n"),
+  });
+  const { "claude-usage-cap": metric } = byKey(parse());
+  assert.equal(metric.display, "Unlimited");
+  assert.equal(metric.availability, "unlimited");
+  assert.equal(metric.resetText, "Resets Aug 1");
 });
 
 test("a metric for an unrelated hostname is never produced", () => {

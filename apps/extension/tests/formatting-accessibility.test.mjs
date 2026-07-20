@@ -16,6 +16,7 @@ test("metric values use the browser locale instead of provider display text", ()
   assert.equal(sandbox.formatMetric({ value: 1234, unit: "usd", display: "$12.34" }, "de-DE"), "12,34 $");
   assert.equal(sandbox.formatMetric({ value: 45, unit: "percent", display: "45%" }, "de-DE"), "45 %");
   assert.equal(sandbox.formatMetric({ value: 1200, unit: "count" }, "de-DE"), "1.200");
+  assert.equal(sandbox.formatMetric({ value: 100, unit: "percent", display: "Unlimited", availability: "unlimited" }, "de-DE"), "Unlimited");
 });
 
 test("popup exposes semantic regions, card labels, and meter values", () => {
