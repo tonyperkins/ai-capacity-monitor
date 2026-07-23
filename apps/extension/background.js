@@ -16,6 +16,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (Object.keys(changes).length && Object.values(changes).every((change) => change.newValue === undefined)) return;
   if (changes.autoCollectionEnabled || changes.collectionIntervalMinutes) syncSchedule();
   if (changes.enabledProviders) pruneDisabledProviders(changes.enabledProviders.newValue ?? []);
+  if (changes.useCollectionWindow?.oldValue && changes.useCollectionWindow.newValue === false) closeCollectionWindow();
   if (changes.publishMode || changes.bridgeUrl || changes.webhookUrl) chrome.storage.local.set({ publishRetryCount: 0 }).then(() => drainPublishQueue());
 });
 chrome.alarms.onAlarm.addListener(async (alarm) => {
@@ -36,7 +37,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true;
   }
   if (message?.type === "focus-provider") {
-    focusProvider(message.key).then(sendResponse).catch((error) => sendResponse({ ok: false, error: String(error) }));
+    focusProvider(message.key, message.windowId).then(sendResponse).catch((error) => sendResponse({ ok: false, error: String(error) }));
     return true;
   }
   if (message?.type !== "collect" && message?.type !== "collect-provider") return;
@@ -55,8 +56,7 @@ async function deleteLocalData() {
   clearingLocalData = true;
   try {
     await Promise.all([chrome.alarms.clear("collect"), chrome.alarms.clear("collect-retry"), chrome.alarms.clear("publish-retry")]);
-    const { collectionTabIds = {} } = await chrome.storage.local.get("collectionTabIds");
-    await closeTabs(Object.values(collectionTabIds));
+    await closeCollectionWindow();
     await chrome.storage.local.clear();
     return { ok: true };
   } finally {
@@ -82,33 +82,48 @@ async function pruneDisabledMetrics(enabledIds) {
 
 async function pruneDisabledProviders(enabledIds) {
   await pruneDisabledMetrics(enabledIds);
-  const { collectionTabIds = {} } = await chrome.storage.local.get("collectionTabIds");
+  const { collectionTabIds = {}, collectionWindowId = null } = await chrome.storage.local.get(["collectionTabIds", "collectionWindowId"]);
   const retained = Object.fromEntries(Object.entries(collectionTabIds).filter(([providerId]) => enabledIds.includes(providerId)));
   const staleTabIds = Object.entries(collectionTabIds).filter(([providerId]) => !enabledIds.includes(providerId)).map(([, tabId]) => tabId);
+  if (!Object.keys(retained).length && Number.isInteger(collectionWindowId)) return closeCollectionWindow();
   if (staleTabIds.length) await closeTabs(staleTabIds);
   if (staleTabIds.length) await chrome.storage.local.set({ collectionTabIds: retained });
 }
 
-async function focusProvider(key) {
+async function focusProvider(key, requestedWindowId = null) {
   const target = PROVIDERS.find((candidate) => candidate.metrics.some((metric) => metric.key === key));
   if (!target) return { ok: false, error: "No provider page is configured for this item." };
   if (!await chrome.permissions.contains({ origins: [providerOrigin(target)] })) return { ok: false, error: "Permission needed. Grant access in Settings before opening this provider." };
-  const candidates = (await chrome.tabs.query({})).filter((tab) => tab.url?.includes(target.match));
-  if (candidates.length) {
-    await chrome.tabs.update(candidates.sort((a, b) => (b.lastAccessed ?? 0) - (a.lastAccessed ?? 0))[0].id, { active: true });
+  const { collectionTabIds = {} } = await chrome.storage.local.get("collectionTabIds");
+  const collectionTabIdSet = new Set(Object.values(collectionTabIds));
+  let foregroundWindowId = requestedWindowId;
+  if (!Number.isInteger(foregroundWindowId)) {
+    try { foregroundWindowId = (await chrome.windows.getLastFocused()).id; } catch { /* Chrome picks the current window below. */ }
+  }
+  const candidates = (await chrome.tabs.query({})).filter((tab) => !collectionTabIdSet.has(tab.id) && tab.url?.includes(target.match));
+  const currentWindowCandidate = candidates.find((tab) => tab.windowId === foregroundWindowId);
+  const chosen = Number.isInteger(foregroundWindowId)
+    ? currentWindowCandidate
+    : candidates.sort((a, b) => (b.lastAccessed ?? 0) - (a.lastAccessed ?? 0))[0];
+  if (chosen) {
+    await chrome.tabs.update(chosen.id, { active: true });
+    if (Number.isInteger(chosen.windowId)) await chrome.windows.update(chosen.windowId, { focused: true });
     return { ok: true, opened: false };
   }
-  await chrome.tabs.create({ url: target.url, active: true });
+  const createProperties = { url: target.url, active: true };
+  if (Number.isInteger(foregroundWindowId)) createProperties.windowId = foregroundWindowId;
+  await chrome.tabs.create(createProperties);
   return { ok: true, opened: true };
 }
 
 async function initializeSchedule(details) {
-  const config = await chrome.storage.local.get(["autoCollectionEnabled", "collectionIntervalMinutes", "enabledProviders", "publishMode"]);
+  const config = await chrome.storage.local.get(["autoCollectionEnabled", "collectionIntervalMinutes", "enabledProviders", "publishMode", "useCollectionWindow"]);
   await chrome.storage.local.set({
     ...(config.autoCollectionEnabled === undefined ? { autoCollectionEnabled: true } : {}),
     ...(config.collectionIntervalMinutes === undefined ? { collectionIntervalMinutes: 20 } : {}),
     ...(config.enabledProviders === undefined ? { enabledProviders: details?.reason === "update" ? PROVIDERS.map((provider) => provider.id) : [] } : {}),
     ...(config.publishMode === undefined ? { publishMode: details?.reason === "update" ? "bridge" : "disabled" } : {}),
+    ...(config.useCollectionWindow === undefined ? { useCollectionWindow: false } : {}),
   });
   await syncSchedule();
   if (details?.reason === "install") await chrome.tabs.create({ url: chrome.runtime.getURL("onboarding.html"), active: true });
@@ -286,8 +301,10 @@ async function setPublishStatus(status) {
 }
 
 async function ensureCollectionTabs(targets = PROVIDERS) {
-  const { collectionTabIds = {} } = await chrome.storage.local.get("collectionTabIds");
+  const { collectionTabIds = {}, useCollectionWindow = false } = await chrome.storage.local.get(["collectionTabIds", "useCollectionWindow"]);
   const nextCollectionTabIds = { ...collectionTabIds };
+  const collectionWindow = useCollectionWindow && targets.length ? await ensureCollectionWindow(targets[0].url) : null;
+  let bootstrapTabId = collectionWindow?.bootstrapTabId ?? null;
   const tabs = [];
   const opened = [];
   for (const target of targets) {
@@ -299,8 +316,25 @@ async function ensureCollectionTabs(targets = PROVIDERS) {
         if (existing.url?.includes(target.match)) tab = existing;
       } catch { /* A manually closed collection tab is recreated below. */ }
     }
+    if (tab && collectionWindow && tab.windowId !== collectionWindow.id) {
+      try {
+        await chrome.tabs.move(tab.id, { windowId: collectionWindow.id, index: -1 });
+        tab = await chrome.tabs.get(tab.id);
+      } catch { tab = null; }
+    }
     if (!tab) {
-      tab = await chrome.tabs.create({ url: target.url, active: false, pinned: true });
+      if (bootstrapTabId !== null) {
+        try {
+          const bootstrapTab = await chrome.tabs.get(bootstrapTabId);
+          if (bootstrapTab.url?.includes(target.match)) tab = await chrome.tabs.update(bootstrapTab.id, { pinned: true });
+        } catch { /* A closed bootstrap tab is replaced below. */ }
+        bootstrapTabId = null;
+      }
+      if (!tab) {
+        const createProperties = { url: target.url, active: false, pinned: true };
+        if (collectionWindow) createProperties.windowId = collectionWindow.id;
+        tab = await chrome.tabs.create(createProperties);
+      }
       nextCollectionTabIds[target.id] = tab.id;
       opened.push(tab.id);
     } else if (!tab.pinned) {
@@ -313,6 +347,7 @@ async function ensureCollectionTabs(targets = PROVIDERS) {
     }
     tabs.push(tab);
   }
+  if (bootstrapTabId !== null) await closeTabs([bootstrapTabId]);
   await chrome.storage.local.set({ collectionTabIds: nextCollectionTabIds });
   return { tabs, opened };
 }
@@ -377,9 +412,36 @@ async function closeTabs(tabIds) {
 }
 
 async function closeCollectionTabs(tabIds) {
-  const { collectionTabIds = {} } = await chrome.storage.local.get("collectionTabIds");
+  const { collectionTabIds = {}, collectionWindowId = null } = await chrome.storage.local.get(["collectionTabIds", "collectionWindowId"]);
   const closing = new Set(tabIds);
   const retained = Object.fromEntries(Object.entries(collectionTabIds).filter(([, tabId]) => !closing.has(tabId)));
+  if (!Object.keys(retained).length && Number.isInteger(collectionWindowId)) return closeCollectionWindow();
   await closeTabs(tabIds);
   await chrome.storage.local.set({ collectionTabIds: retained });
+}
+
+async function ensureCollectionWindow(initialUrl) {
+  const { collectionWindowId = null } = await chrome.storage.local.get("collectionWindowId");
+  if (Number.isInteger(collectionWindowId)) {
+    try {
+      const existing = await chrome.windows.get(collectionWindowId);
+      if (existing.state !== "minimized") await chrome.windows.update(existing.id, { state: "minimized" });
+      return { id: existing.id, bootstrapTabId: null };
+    } catch { /* A manually closed collection window is recreated below. */ }
+  }
+  const created = await chrome.windows.create({ url: initialUrl, state: "minimized", focused: false });
+  const bootstrapTab = created.tabs?.[0] ?? (await chrome.tabs.query({ windowId: created.id }))[0];
+  await chrome.storage.local.set({ collectionWindowId: created.id });
+  return { id: created.id, bootstrapTabId: bootstrapTab?.id ?? null };
+}
+
+async function closeCollectionWindow() {
+  const { collectionWindowId = null, collectionTabIds = {} } = await chrome.storage.local.get(["collectionWindowId", "collectionTabIds"]);
+  if (Number.isInteger(collectionWindowId)) {
+    try { await chrome.windows.remove(collectionWindowId); }
+    catch { await closeTabs(Object.values(collectionTabIds)); }
+  } else {
+    await closeTabs(Object.values(collectionTabIds));
+  }
+  await chrome.storage.local.set({ collectionWindowId: null, collectionTabIds: {} });
 }

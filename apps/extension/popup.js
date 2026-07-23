@@ -20,19 +20,6 @@ function renderUpdated() {
   $("updated").textContent = `Updated ${formatShortTime(collectedAt)} - ${elapsed}`;
 }
 
-function timeRemainingPercent(metric) {
-  const total = resetWindows[metric.key];
-  if (!total || !metric.resetText) return null;
-  const countdown = [...metric.resetText.matchAll(/(\d+)\s*(day|days|d|hour|hours|hr|hrs|h|min|mins|minute|minutes|m)/gi)].reduce((milliseconds, match) => milliseconds + Number(match[1]) * ({ d: 86400000, day: 86400000, days: 86400000, h: 3600000, hr: 3600000, hrs: 3600000, hour: 3600000, hours: 3600000, m: 60000, min: 60000, mins: 60000, minute: 60000, minutes: 60000 }[match[2].toLowerCase()] ?? 0), 0);
-  if (countdown) return Math.max(0, Math.min(100, countdown / total * 100));
-  const dateText = metric.resetText.replace(/^Resets\s*/i, "");
-  const dateOnly = /^[A-Za-z]{3,9}\s+\d{1,2}$/.test(dateText);
-  const reset = new Date(dateOnly ? `${dateText}, ${new Date().getFullYear()}` : dateText);
-  if (Number.isNaN(reset.getTime())) return null;
-  if (reset.getTime() < Date.now() && dateOnly) reset.setFullYear(reset.getFullYear() + 1);
-  return Math.max(0, Math.min(100, (reset.getTime() - Date.now()) / total * 100));
-}
-
 function escapeHtml(value) {
   return String(value ?? "").replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" }[character]));
 }
@@ -70,13 +57,14 @@ function render(metrics = [], metricStates = {}, enabledKeys = null) {
     const provider = escapeHtml(metric?.provider ?? definition.provider);
     const label = escapeHtml(metric?.label ?? definition.label);
     const display = escapeHtml(formatMetric(metric));
+    const isUnlimited = metric?.availability === "unlimited";
     const resetText = metric?.resetText ? escapeHtml(metric.resetText) : "";
-    const timePercent = metric ? timeRemainingPercent(metric) : null;
-    const meter = metric ? `<div class="meter" role="progressbar" aria-label="${label}: ${display} remaining" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.max(0, Math.min(100, metric.value))}"><i style="width:${Math.max(0, Math.min(100, metric.value))}%"></i></div>` : "";
+    const timePercent = metric ? timeRemainingPercent(metric, resetWindows[metric.key]) : null;
+    const meter = metric && !isUnlimited ? `<div class="meter" role="progressbar" aria-label="${label}: ${display} remaining" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.max(0, Math.min(100, metric.value))}"><i style="width:${Math.max(0, Math.min(100, metric.value))}%"></i></div>` : "";
     const timeMeter = timePercent === null ? "" : `<div class="time-meter" role="progressbar" aria-label="Time remaining until reset" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(timePercent)}" aria-valuetext="${resetText || "Time remaining until reset"}"><i style="width:${timePercent}%"></i></div>`;
     const title = state === "validated" ? `Open ${provider}` : `${stateText[state]}. ${diagnostic?.errorCode ?? "Open the provider page for details."}`;
-    const accessibleName = `${provider}, ${label}: ${display}${metric ? " remaining" : ""}. ${resetText || stateText[state]}. Activate to open provider.`;
-    return `<article class="quota provider-link state-${state}" data-key="${key}" tabindex="0" role="button" aria-label="${escapeHtml(accessibleName)}" title="${escapeHtml(title)}"><div class="quota-top"><div><span>${provider} · ${label}</span>${resetText ? `<small>${resetText}</small>` : stateMarkup(state, diagnostic?.errorCode ?? metric?.errorCode)}</div><strong aria-hidden="true">${display}${metric ? " remaining" : ""}</strong></div>${meter}${timeMeter}</article>`;
+    const accessibleName = `${provider}, ${label}: ${display}${metric && !isUnlimited ? " remaining" : ""}. ${resetText || stateText[state]}. Activate to open provider.`;
+    return `<article class="quota provider-link state-${state}" data-key="${key}" tabindex="0" role="button" aria-label="${escapeHtml(accessibleName)}" title="${escapeHtml(title)}"><div class="quota-top"><div><span>${provider} · ${label}</span>${resetText ? `<small>${resetText}</small>` : stateMarkup(state, diagnostic?.errorCode ?? metric?.errorCode)}</div><strong aria-hidden="true">${display}${metric && !isUnlimited ? " remaining" : ""}</strong></div>${meter}${timeMeter}</article>`;
   }).join("");
   document.querySelectorAll(".provider-link").forEach((item) => {
     item.addEventListener("click", (event) => { if (!event.target.closest(".card-refresh")) focusProvider(item.dataset.key); });
@@ -87,7 +75,8 @@ function render(metrics = [], metricStates = {}, enabledKeys = null) {
 
 async function focusProvider(key) {
   $("status").textContent = POPUP_COPY.opening;
-  const result = await chrome.runtime.sendMessage({ type: "focus-provider", key });
+  const currentWindow = await chrome.windows.getCurrent();
+  const result = await chrome.runtime.sendMessage({ type: "focus-provider", key, windowId: currentWindow.id });
   if (!result?.ok) { $("status").textContent = POPUP_COPY.checkTabs; $("updated").textContent = result?.error ?? "Unable to open provider"; $("updated").className = "error"; }
 }
 
@@ -100,7 +89,11 @@ async function load() {
   render(visibleMetrics, visibleStates, enabledKeys);
   $("close-opened-tabs").checked = Boolean(data.closeOpenedTabs);
   $("auto-updates").checked = data.autoCollectionEnabled !== false;
-  collectedAt = oldestVisibleCollectedAt(visibleMetrics) ?? data.lastCollectedAt ?? null;
+  // This is the time the collection pass finished, not the age of every
+  // individual reading. A retained prior reading is already marked on its
+  // card; using its timestamp here made a fresh successful collection look
+  // stale in the popup footer.
+  collectedAt = data.lastCollectedAt ?? oldestVisibleCollectedAt(visibleMetrics) ?? null;
   renderUpdated();
   const attention = Object.values(visibleStates).some((state) => state.state !== "validated");
   $("status").textContent = !enabledIds.length ? POPUP_COPY.setup : attention ? POPUP_COPY.attention : data.lastCollectedAt ? POPUP_COPY.ready : POPUP_COPY.waiting;
