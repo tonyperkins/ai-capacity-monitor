@@ -74,6 +74,7 @@ and secrets. See [SECURITY.md](SECURITY.md) for private vulnerability reports.
 
 - Extension tests: `npm test --prefix apps/extension`
 - Package: `python3 scripts/package-extension.py`
+- CYD hardware-test firmware: `pio run -d apps/cyd-dashboard`
 - Contribution guide: [CONTRIBUTING.md](CONTRIBUTING.md)
 - Troubleshooting: [docs/troubleshooting.md](docs/troubleshooting.md)
 - Chrome Web Store permission draft: [docs/web-store-permissions.md](docs/web-store-permissions.md)
