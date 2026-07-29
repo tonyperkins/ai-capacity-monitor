@@ -10,6 +10,11 @@ if (!rawConfig.collectorSecret) {
   await writeFile(configPath, JSON.stringify(rawConfig, null, 2), { mode: 0o600 });
   console.log(`Generated a new collector secret. Paste this into the extension's Settings page (Local bridge secret):\n${rawConfig.collectorSecret}`);
 }
+if (rawConfig.display?.enabled && !rawConfig.display.token) {
+  rawConfig.display.token = crypto.randomBytes(32).toString("hex");
+  await writeFile(configPath, JSON.stringify(rawConfig, null, 2), { mode: 0o600 });
+  console.log(`Generated a new read-only display token. Enter this in the CYD setup portal:\n${rawConfig.display.token}`);
+}
 const config = normalizeConfig(rawConfig, { configPath });
 if (config.migratedLegacyDestination) {
   rawConfig.destination = config.destination;
@@ -18,3 +23,6 @@ if (config.migratedLegacyDestination) {
 }
 const bridge = await createBridge({ config });
 bridge.server.listen(8787, "127.0.0.1", () => console.log("Capacity Monitor bridge listening on 127.0.0.1:8787"));
+if (bridge.displayServer) {
+  bridge.displayServer.listen(config.display.port, config.display.host, () => console.log(`Read-only display endpoint listening on ${config.display.host}:${config.display.port}`));
+}

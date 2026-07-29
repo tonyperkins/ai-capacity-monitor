@@ -13,4 +13,5 @@ test("snapshot v1 carries every explicit collection state", () => {
   assert.deepEqual(states, expected);
   assert.deepEqual(diagnosticStates, expected);
   assert.equal(schema.required.includes("diagnostics"), false, "diagnostics is additive for existing v1 consumers");
+  assert.equal(schema.properties.metrics.items.properties.resetWindowMs.maximum, 2678400000);
 });

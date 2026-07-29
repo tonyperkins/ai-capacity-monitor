@@ -24,6 +24,7 @@ function validMetric(metric) {
     validOptionalString(metric.errorCode, 80) && validOptionalString(metric.display, 40) &&
     validOptionalString(metric.resetText, 160) &&
     (metric.resetAt === undefined || validDate(metric.resetAt)) &&
+    (metric.resetWindowMs === undefined || (Number.isInteger(metric.resetWindowMs) && metric.resetWindowMs >= 1 && metric.resetWindowMs <= 2678400000)) &&
     (metric.collectedAt === undefined || validDate(metric.collectedAt));
 }
 

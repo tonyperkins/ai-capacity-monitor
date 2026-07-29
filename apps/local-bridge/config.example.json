@@ -5,5 +5,11 @@
     "url": "https://example.com/capacity",
     "headers": { "Authorization": "Bearer set-by-installer" }
   },
+  "display": {
+    "enabled": false,
+    "host": "0.0.0.0",
+    "port": 8788,
+    "token": "generated-on-first-start-if-omitted"
+  },
   "queue": { "maxItems": 50 }
 }
