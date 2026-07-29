@@ -7,6 +7,18 @@ on:
     branches: [main]
 
 jobs:
+  cyd-firmware:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install PlatformIO
+        run: pip install platformio==6.1.19
+      - name: Build both CYD display profiles
+        run: pio run -d apps/cyd-dashboard -e cyd-usbc-ili934x -e cyd-usbc-st7789
+
   extension:
     runs-on: ubuntu-latest
     steps:
