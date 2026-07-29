@@ -28,7 +28,19 @@ export function validateDestination(destination) {
 // Converts the private prototype config once. New configs always use the
 // generic webhook shape, including when the target happens to be a Sites app.
 export function normalizeConfig(config, { configPath } = {}) {
-  const queuePath = config.queue?.path ?? path.join(path.dirname(configPath ?? process.cwd()), "queue.json");
+  const configDirectory = path.dirname(configPath ?? process.cwd());
+  const queuePath = config.queue?.path ?? path.join(configDirectory, "queue.json");
+  const display = {
+    enabled: config.display?.enabled === true,
+    host: config.display?.host ?? "0.0.0.0",
+    port: Number(config.display?.port ?? 8788),
+    token: config.display?.token,
+    snapshotPath: config.display?.snapshotPath ?? path.join(configDirectory, "latest-snapshot.json"),
+  };
+  if (config.display?.enabled !== undefined && typeof config.display.enabled !== "boolean") throw new Error("display.enabled must be a boolean");
+  if (display.enabled && (!display.token || typeof display.token !== "string")) throw new Error("display.token is required when the display endpoint is enabled");
+  if (typeof display.host !== "string" || !display.host.length) throw new Error("display.host is required");
+  if (!Number.isInteger(display.port) || display.port < 1 || display.port > 65535) throw new Error("display.port must be an integer from 1 to 65535");
   const destination = config.destination ?? (config.siteUrl ? {
     type: "webhook",
     url: new URL("/api/ingest", config.siteUrl).href,
@@ -39,9 +51,13 @@ export function normalizeConfig(config, { configPath } = {}) {
   } : null);
   const queueLimit = Number(config.queue?.maxItems ?? DEFAULT_QUEUE_LIMIT);
   if (!Number.isInteger(queueLimit) || queueLimit < 1 || queueLimit > 500) throw new Error("queue.maxItems must be an integer from 1 to 500");
-  const destinationCheck = validateDestination(destination);
-  if (!destinationCheck.ok) throw new Error(`Invalid destination: ${destinationCheck.error}`);
-  return { collectorSecret: config.collectorSecret, destination, queuePath, queueLimit, migratedLegacyDestination: !config.destination && Boolean(config.siteUrl) };
+  if (destination) {
+    const destinationCheck = validateDestination(destination);
+    if (!destinationCheck.ok) throw new Error(`Invalid destination: ${destinationCheck.error}`);
+  } else if (!display.enabled) {
+    throw new Error("A forwarding destination or enabled display endpoint is required");
+  }
+  return { collectorSecret: config.collectorSecret, destination, display, queuePath, queueLimit, migratedLegacyDestination: !config.destination && Boolean(config.siteUrl) };
 }
 
 async function loadQueue(queuePath) {
@@ -59,6 +75,23 @@ async function saveQueue(queuePath, entries) {
   const temporary = `${queuePath}.tmp`;
   await writeFile(temporary, JSON.stringify({ version: 1, entries }, null, 2), { mode: 0o600 });
   await rename(temporary, queuePath);
+}
+
+async function loadLatestSnapshot(snapshotPath) {
+  try {
+    const snapshot = JSON.parse(await readFile(snapshotPath, "utf8"));
+    return validateSnapshot(snapshot).ok ? snapshot : null;
+  } catch (error) {
+    if (error?.code === "ENOENT") return null;
+    throw new Error("Unable to read latest bridge snapshot");
+  }
+}
+
+async function saveLatestSnapshot(snapshotPath, snapshot) {
+  await mkdir(path.dirname(snapshotPath), { recursive: true });
+  const temporary = `${snapshotPath}.tmp`;
+  await writeFile(temporary, JSON.stringify(snapshot), { mode: 0o600 });
+  await rename(temporary, snapshotPath);
 }
 
 function retryDelay(attempts) {
@@ -87,21 +120,28 @@ async function readJson(request) {
 
 export async function createBridge({ config, fetchImpl = fetch, now = () => Date.now(), schedule = setTimeout } = {}) {
   if (!config?.collectorSecret) throw new Error("collectorSecret is required");
-  const destinationCheck = validateDestination(config.destination);
-  if (!destinationCheck.ok) throw new Error(`Invalid destination: ${destinationCheck.error}`);
+  const display = config.display ?? { enabled: false };
+  if (config.destination) {
+    const destinationCheck = validateDestination(config.destination);
+    if (!destinationCheck.ok) throw new Error(`Invalid destination: ${destinationCheck.error}`);
+  } else if (!display.enabled) {
+    throw new Error("A forwarding destination or enabled display endpoint is required");
+  }
   let entries = await loadQueue(config.queuePath);
+  let latestSnapshot = display.enabled ? await loadLatestSnapshot(display.snapshotPath) : null;
   let activeDrain = null;
   let retryTimer = null;
   const status = { startedAt: new Date(now()).toISOString(), lastReceivedAt: null, lastDelivery: { state: "idle", at: null, code: null } };
 
   const persist = () => saveQueue(config.queuePath, entries);
-  const health = () => ({ status: "ok", queueSize: entries.length, lastReceivedAt: status.lastReceivedAt, lastDelivery: status.lastDelivery });
+  const health = () => ({ status: "ok", queueSize: entries.length, snapshotAvailable: Boolean(latestSnapshot), lastReceivedAt: status.lastReceivedAt, lastDelivery: status.lastDelivery });
   const scheduleRetry = () => {
     if (retryTimer || !entries.length) return;
     const delay = Math.max(0, (entries[0].nextAttemptAt ?? now()) - now());
     retryTimer = schedule(() => { retryTimer = null; drain(); }, delay);
   };
   async function drain({ force = false } = {}) {
+    if (!config.destination) return;
     if (activeDrain) return activeDrain;
     activeDrain = (async () => {
       while (entries.length) {
@@ -130,10 +170,15 @@ export async function createBridge({ config, fetchImpl = fetch, now = () => Date
     return activeDrain;
   }
   async function receive(snapshot) {
+    if (display.enabled) {
+      await saveLatestSnapshot(display.snapshotPath, snapshot);
+      latestSnapshot = snapshot;
+    }
+    status.lastReceivedAt = new Date(now()).toISOString();
+    if (!config.destination) return { ok: true, queued: 0 };
     if (entries.length >= config.queueLimit) return { ok: false, error: "queue-full" };
     entries.push({ id: crypto.randomUUID(), snapshot, attempts: 0, nextAttemptAt: now() });
     await persist();
-    status.lastReceivedAt = new Date(now()).toISOString();
     await drain();
     return { ok: true, queued: entries.length };
   }
@@ -152,6 +197,14 @@ export async function createBridge({ config, fetchImpl = fetch, now = () => Date
       return sendJson(response, 503, { error: "queue-unavailable" });
     }
   });
+  const displayServer = display.enabled ? http.createServer((request, response) => {
+    if (request.method !== "GET" || request.url !== "/snapshot/v1") return sendJson(response, 404, { error: "not-found" });
+    const authorization = request.headers.authorization;
+    const token = typeof authorization === "string" && authorization.startsWith("Bearer ") ? authorization.slice(7) : null;
+    if (!sameSecret(display.token, token)) return sendJson(response, 401, { error: "unauthorized" });
+    if (!latestSnapshot) return sendJson(response, 503, { error: "snapshot-unavailable" });
+    return sendJson(response, 200, latestSnapshot);
+  }) : null;
   queueMicrotask(() => drain());
-  return { server, drain, health, receive, close: () => { if (retryTimer) clearTimeout(retryTimer); } };
+  return { server, displayServer, drain, health, receive, close: () => { if (retryTimer) clearTimeout(retryTimer); } };
 }

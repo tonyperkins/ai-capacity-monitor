@@ -14,14 +14,25 @@ const snapshot = {
   issues: [],
 };
 
-async function withBridge({ fetchImpl, callback }) {
+async function withBridge({ fetchImpl, callback, config: configOverrides = {} }) {
   const directory = await mkdtemp(path.join(os.tmpdir(), "capacity-bridge-test-"));
-  const bridge = await createBridge({ config: { collectorSecret: secret, destination: { type: "webhook", url: "http://127.0.0.1:9999/collect", headers: { authorization: "Bearer test" } }, queuePath: path.join(directory, "queue.json"), queueLimit: 5 }, fetchImpl });
+  const config = {
+    collectorSecret: secret,
+    destination: { type: "webhook", url: "http://127.0.0.1:9999/collect", headers: { authorization: "Bearer test" } },
+    queuePath: path.join(directory, "queue.json"),
+    queueLimit: 5,
+    ...configOverrides,
+    ...(configOverrides.display ? { display: { ...configOverrides.display, snapshotPath: path.join(directory, "latest-snapshot.json") } } : {}),
+  };
+  const bridge = await createBridge({ config, fetchImpl });
   await new Promise((resolve) => bridge.server.listen(0, "127.0.0.1", resolve));
   const port = bridge.server.address().port;
-  try { await callback({ bridge, url: `http://127.0.0.1:${port}` }); }
+  if (bridge.displayServer) await new Promise((resolve) => bridge.displayServer.listen(0, "127.0.0.1", resolve));
+  const displayUrl = bridge.displayServer ? `http://127.0.0.1:${bridge.displayServer.address().port}` : null;
+  try { await callback({ bridge, url: `http://127.0.0.1:${port}`, displayUrl }); }
   finally {
     bridge.close();
+    if (bridge.displayServer) await new Promise((resolve) => bridge.displayServer.close(resolve));
     await new Promise((resolve) => bridge.server.close(resolve));
     await rm(directory, { recursive: true, force: true });
   }
@@ -96,4 +107,35 @@ test("health is redacted and legacy Sites settings migrate to a generic destinat
       assert.match(body, /queueSize/);
     },
   });
+});
+
+test("serves the latest validated snapshot from a token-protected read-only endpoint", async () => {
+  await withBridge({
+    config: { destination: null, display: { enabled: true, token: "display-secret" } },
+    callback: async ({ bridge, url, displayUrl }) => {
+      const before = await fetch(`${displayUrl}/snapshot/v1`, { headers: { authorization: "Bearer display-secret" } });
+      assert.equal(before.status, 503);
+
+      const response = await collect(url, snapshot);
+      assert.equal(response.status, 202);
+      assert.deepEqual(await response.json(), { accepted: 1, queued: 0 });
+      assert.equal(bridge.health().snapshotAvailable, true);
+
+      const unauthorized = await fetch(`${displayUrl}/snapshot/v1`);
+      assert.equal(unauthorized.status, 401);
+      const displayed = await fetch(`${displayUrl}/snapshot/v1`, { headers: { authorization: "Bearer display-secret" } });
+      assert.equal(displayed.status, 200);
+      assert.deepEqual(await displayed.json(), snapshot);
+      const writeAttempt = await fetch(`${displayUrl}/snapshot/v1`, { method: "POST", headers: { authorization: "Bearer display-secret" } });
+      assert.equal(writeAttempt.status, 404);
+    },
+  });
+});
+
+test("normalizes a display-only bridge configuration", () => {
+  const config = normalizeConfig({ collectorSecret: secret, display: { enabled: true, token: "display-secret" } }, { configPath: "/tmp/capacity/collector.json" });
+  assert.equal(config.destination, null);
+  assert.equal(config.display.host, "0.0.0.0");
+  assert.equal(config.display.port, 8788);
+  assert.equal(config.display.snapshotPath, "/tmp/capacity/latest-snapshot.json");
 });

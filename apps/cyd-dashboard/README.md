@@ -1,12 +1,13 @@
 # CYD dashboard firmware
 
-Firmware for the ESP32-2432S028 Cheap Yellow Display (CYD). The first
-milestone is intentionally a hardware test: it proves the display, backlight,
-XPT2046 touch controller, Wi-Fi radio, serial connection, and board profile
-before the Capacity Monitor data client and final UI are added.
+Firmware for the ESP32-2432S028 Cheap Yellow Display (CYD). It shows the same
+validated balances and subscription limits as the browser extension by
+polling the local bridge's token-protected, read-only display endpoint.
 
 No Wi-Fi credentials, bridge tokens, provider data, or device identifiers are
-stored in this repository or required by the hardware test.
+stored in this repository. Device settings live in ESP32 preferences, and the
+last valid snapshot is cached in LittleFS so a bridge or Wi-Fi outage is shown
+honestly without erasing the last known readings.
 
 ## Hardware profile
 
@@ -26,7 +27,26 @@ controller. Both known profiles are buildable:
 Selecting the wrong profile does not damage the board; the screen will be
 blank or visibly incorrect, and the alternate environment can be flashed.
 
-## Build and upload
+## Provision the local bridge
+
+On the computer running the Capacity Monitor local bridge:
+
+```sh
+cd apps/local-bridge
+CAPACITY_COLLECTOR_CONFIG=~/.config/ai-capacity-monitor/collector.json npm run display:enable
+systemctl --user restart ai-capacity-collector.service
+```
+
+The command prints a display token. Keep it private. The CYD snapshot URL is:
+
+```text
+http://COMPUTER-LAN-IP:8788/snapshot/v1
+```
+
+Collection ingestion remains on loopback. Only the authenticated, read-only
+snapshot route is exposed to the trusted LAN, and it has no write methods.
+
+## Build, upload, and first setup
 
 From this directory:
 
@@ -42,10 +62,27 @@ To test the fallback controller:
 pio run -e cyd-usbc-st7789 -t upload
 ```
 
-The expected display has red, green, and blue test bars plus status rows. Touch
-the screen and confirm that raw coordinates appear. A successful Wi-Fi scan
-reports only the number of nearby networks; network names are not displayed or
-logged.
+After the first boot, connect a phone or computer to the temporary
+`Capacity Monitor Setup` Wi-Fi network and open `http://192.168.4.1`. Choose
+the device's Wi-Fi, then enter the snapshot URL and display token. The setup
+portal closes after five minutes. Touch the display during its first second of
+boot to reopen setup later.
+
+The device polls once per minute. Its bottom status strip shows the true age of
+the collected snapshot, a page indicator, and `LIVE`, `CACHED`, `WAIT`, or a
+warning count. Tap the screen to move between balance and limit pages. Double
+tap to cycle the saved backlight brightness through 100%, 50%, 20%, and 5%.
+Press and hold for about 1.5 seconds to rotate clockwise; the selected
+orientation and brightness are saved across restarts. Portrait and landscape
+use separate responsive layouts rather than scaling the same canvas.
+
+Portrait quota rows show a green capacity bar and, when the extension supplies
+reset timing, a separate high-contrast magenta bar for time remaining until
+the next reset. The reset bar is intentionally omitted when the provider does
+not expose enough timing information to calculate it.
+
+After enabling the bridge, run **Collect now** in the extension once so the
+bridge has an initial validated snapshot to serve.
 
 ## Reference
 

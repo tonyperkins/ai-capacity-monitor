@@ -50,6 +50,19 @@ optional publishing, and local-data deletion.
 
 <img src="docs/images/settings.png" alt="AI Capacity Monitor settings page" width="560">
 
+## Optional desk display
+
+The popup is the primary local view, but a small ESP32-based Cheap Yellow
+Display (CYD) can show the same snapshot on a desk. It polls a separate,
+read-only endpoint from the optional local bridge; collection still happens
+only through the extension, and provider credentials never leave the browser.
+
+The CYD dashboard stores its Wi-Fi and display-token settings on the device,
+caches the last validated snapshot for outages, and supports touch navigation,
+saved orientation, and adjustable backlight brightness. See the
+[CYD dashboard guide](apps/cyd-dashboard/README.md) for hardware profiles,
+bridge provisioning, and setup.
+
 ## Install
 
 For local or pre-Store testing, follow the [install guide](docs/install.md).
@@ -74,7 +87,7 @@ and secrets. See [SECURITY.md](SECURITY.md) for private vulnerability reports.
 
 - Extension tests: `npm test --prefix apps/extension`
 - Package: `python3 scripts/package-extension.py`
-- CYD hardware-test firmware: `pio run -d apps/cyd-dashboard`
+- CYD dashboard firmware: `pio run -d apps/cyd-dashboard`
 - Contribution guide: [CONTRIBUTING.md](CONTRIBUTING.md)
 - Troubleshooting: [docs/troubleshooting.md](docs/troubleshooting.md)
 - Chrome Web Store permission draft: [docs/web-store-permissions.md](docs/web-store-permissions.md)

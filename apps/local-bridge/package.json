@@ -2,5 +2,10 @@
   "name": "ai-capacity-monitor-local-bridge",
   "private": true,
   "type": "module",
-  "scripts": { "test": "node --test" }
+  "scripts": {
+    "test": "node --test",
+    "display:enable": "node configure-display.js enable",
+    "display:disable": "node configure-display.js disable",
+    "display:status": "node configure-display.js status"
+  }
 }

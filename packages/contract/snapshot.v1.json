@@ -34,6 +34,12 @@
           "attemptedAt": { "type": "string", "format": "date-time", "description": "When the extension last attempted to read this metric." },
           "errorCode": { "type": ["string", "null"], "maxLength": 80, "description": "Stable, safe diagnostic code; never raw provider page text." },
           "resetAt": { "type": "string", "format": "date-time" },
+          "resetWindowMs": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2678400000,
+            "description": "Optional duration of the quota reset window. With resetAt, consumers can render remaining-time progress without provider-specific parsing."
+          },
           "collectedAt": {
             "type": "string",
             "format": "date-time",
