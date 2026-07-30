@@ -31,6 +31,15 @@ constexpr const char* kSnapshotCachePath = "/snapshot.json";
 constexpr const char* kOfficeMqttHost = "192.168.50.84";
 constexpr uint16_t kOfficeMqttPort = 1883;
 constexpr const char* kOfficeBrightnessTopic = "perkinslab/cyd/tonys-office/brightness";
+#if __has_include("mqtt_credentials.h")
+#include "mqtt_credentials.h"
+#endif
+#ifndef MQTT_USERNAME
+#define MQTT_USERNAME ""
+#endif
+#ifndef MQTT_PASSWORD
+#define MQTT_PASSWORD ""
+#endif
 
 // This panel has limited contrast and a strong blue cast. A mostly neutral,
 // near-black palette reads more cleanly than dark blue surfaces on the actual
@@ -409,8 +418,10 @@ void loadSettings() {
   settings.mqttHost = preferences.getString("mqttHost", kOfficeMqttHost);
   settings.mqttPort = preferences.getUShort("mqttPort", kOfficeMqttPort);
   settings.mqttTopic = preferences.getString("mqttTopic", kOfficeBrightnessTopic);
-  settings.mqttUsername = preferences.getString("mqttUser", "");
-  settings.mqttPassword = preferences.getString("mqttPass", "");
+  settings.mqttUsername = preferences.getString("mqttUser", MQTT_USERNAME);
+  settings.mqttPassword = preferences.getString("mqttPass", MQTT_PASSWORD);
+  if (!settings.mqttUsername.length()) settings.mqttUsername = MQTT_USERNAME;
+  if (!settings.mqttPassword.length()) settings.mqttPassword = MQTT_PASSWORD;
   settings.rotation = preferences.getUChar("rotation", 1) % 4;
   settings.brightnessIndex = preferences.getUChar("brightness", 0) % 4;
   preferences.end();
@@ -494,6 +505,7 @@ void onMqttMessage(char* topic, byte* payload, unsigned int length) {
   hasMqttBrightness = true;
   mqttBrightness = received;
   applyBacklight(received);
+  Serial.printf("MQTT brightness: %u\n", received);
 }
 
 void maintainMqtt() {
@@ -509,6 +521,9 @@ void maintainMqtt() {
   const String clientId = "capacity-cyd-" + WiFi.macAddress().substring(9);
   if (mqtt.connect(clientId.c_str(), settings.mqttUsername.c_str(), settings.mqttPassword.c_str())) {
     mqtt.subscribe(settings.mqttTopic.c_str());
+    Serial.println("MQTT connected");
+  } else {
+    Serial.printf("MQTT connect failed: %d\n", mqtt.state());
   }
 }
 

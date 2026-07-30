@@ -90,9 +90,15 @@ normal dashboard while it waits for a retained value.
 The Office Home Assistant automation is named
 `automation.cyd_office_display_brightness`. It already publishes a retained
 payload after a 15-second illuminance dwell and at Home Assistant startup:
-`38` below 2 lx, `100` at 2–10 lx, `180` at 10–50 lx, and `255` at 50 lx or
-brighter. Reuse that automation rather than creating another publisher for
-the same Office topic.
+`38` (15%) below 2 lx, `100` (39%) at 2–10 lx, `180` (71%) at 10–50 lx, and
+`255` (100%) at 50 lx or brighter. The payload is the raw 8-bit PWM value;
+some other CYD UIs display its percentage instead. Reuse that automation
+rather than creating another publisher for the same Office topic.
+
+For one-device, no-portal provisioning, copy `mqtt_credentials.example.h` to
+the ignored `mqtt_credentials.h`, enter the dedicated broker login there,
+flash the device, then remove the local file. The device saves the credential
+in ESP32 preferences at boot; the temporary header is never tracked by Git.
 
 The device polls once per minute. Its bottom status strip shows the true age of
 the collected snapshot, a page indicator, and `LIVE`, `CACHED`, `WAIT`, or a
