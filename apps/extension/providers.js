@@ -208,7 +208,10 @@ function readProviderMetrics(spec) {
       const raw = read.type === "money-after" ? moneyAfter(read.label)
         : read.type === "money-before-or-after" ? (moneyBefore(read.label) ?? moneyAfter(read.label))
         : labeledCardMoney(read.labels);
-      if (raw) out.push({ ...base, value: money(raw) * 100, display: moneyDisplay(raw) });
+      // The snapshot contract represents USD as integer cents. Rounding here
+      // prevents binary floating-point artifacts (for example 5.10 * 100)
+      // from invalidating the entire published snapshot.
+      if (raw) out.push({ ...base, value: Math.round(money(raw) * 100), display: moneyDisplay(raw) });
     } else if (read.type === "count-after") {
       const count = countAfter(read.label);
       if (Number.isFinite(count)) out.push({ ...base, value: count, display: `${count.toLocaleString()} credits` });
