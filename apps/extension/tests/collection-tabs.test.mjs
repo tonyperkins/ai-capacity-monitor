@@ -21,6 +21,13 @@ test("collection tabs are cleaned up when requested or when their provider is di
   assert.match(source, /await closeTabs\(staleTabIds\)/);
 });
 
+test("a provider-card refresh publishes the complete retained snapshot", () => {
+  assert.match(source, /const snapshotMetrics = Object\.values\(nextByKey\)/);
+  assert.match(source, /const snapshotDiagnostics = Object\.values\(nextStates\)/);
+  assert.match(source, /metrics: snapshotMetrics, diagnostics: snapshotDiagnostics/);
+  assert.doesNotMatch(source, /metrics: publishedMetrics/);
+});
+
 test("a default-off minimized collection window isolates automatic collection", () => {
   assert.match(optionsHtml, /id="collection-window"/);
   assert.match(optionsSource, /useCollectionWindow: \$\("collection-window"\)\.checked/);
