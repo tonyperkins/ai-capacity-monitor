@@ -94,6 +94,13 @@ test("Kilo balance via the DOM card-lookup path", () => {
   assert.equal(metric.unit, "usd");
 });
 
+test("currency readings are normalized to integer cents", () => {
+  setPage({ hostname: "app.kilo.ai", text: "Credits\nYour credit balance\n$5.10\navailable" });
+  const { "kilo-credit": metric } = byKey(parse());
+  assert.equal(metric.value, 510);
+  assert.equal(Number.isInteger(metric.value), true);
+});
+
 test("Kilo balance falls through label variants via the text fallback when no DOM card matches", () => {
   // No "Remaining Credits" or "Available Credits" anywhere in the text —
   // only the third label variant, "Credit Balance", is present.
