@@ -156,7 +156,6 @@ async function runCollection({ permitted: targets = [], missing = [] }) {
   const nextPending = { ...(previous.pendingSuspicion ?? {}) };
   const nextByKey = Object.fromEntries((previous.latestMetrics ?? []).filter((metric) => !targetKeys.has(metric.key)).map((metric) => [metric.key, metric]));
   const nextStates = { ...(previous.metricStates ?? {}) };
-  const publishedMetrics = [];
   const diagnostics = [];
   const now = Date.now();
 
@@ -203,7 +202,6 @@ async function runCollection({ permitted: targets = [], missing = [] }) {
       nextStates[definition.key] = diagnostic;
       if (stored) {
         nextByKey[definition.key] = stored;
-        publishedMetrics.push(stored);
       } else {
         delete nextByKey[definition.key];
       }
@@ -219,7 +217,14 @@ async function runCollection({ permitted: targets = [], missing = [] }) {
   await chrome.alarms.clear("collect-retry");
   const hasSuspicion = diagnostics.some((diagnostic) => diagnostic.state === "suspicious-held");
   if (hasSuspicion && previous.autoCollectionEnabled !== false) chrome.alarms.create("collect-retry", { when: Date.now() + SUSPICION_RETRY_DELAY_MS });
-  const snapshot = { version: "1", collectedAt: new Date(now).toISOString(), metrics: publishedMetrics, diagnostics, issues: diagnostics.filter((diagnostic) => diagnostic.state !== "validated").map(diagnosticMessage) };
+  // A provider-card refresh is intentionally a partial collection, but a
+  // destination receives snapshots rather than patches. Publish the whole
+  // retained local view so a one-provider refresh cannot erase the other
+  // readings from a bridge or hardware display.
+  const snapshotMetrics = Object.values(nextByKey);
+  const snapshotDiagnostics = Object.values(nextStates);
+  const snapshotIssues = snapshotDiagnostics.filter((diagnostic) => diagnostic.state !== "validated").map(diagnosticMessage);
+  const snapshot = { version: "1", collectedAt: new Date(now).toISOString(), metrics: snapshotMetrics, diagnostics: snapshotDiagnostics, issues: snapshotIssues };
   const publish = await publishSnapshot(snapshot);
   const { closeOpenedTabs = false } = await chrome.storage.local.get("closeOpenedTabs");
   if (closeOpenedTabs) await closeCollectionTabs(tabs.map((tab) => tab.id));
