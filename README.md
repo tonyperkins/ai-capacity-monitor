@@ -59,7 +59,8 @@ only through the extension, and provider credentials never leave the browser.
 
 The CYD dashboard stores its Wi-Fi and display-token settings on the device,
 caches the last validated snapshot for outages, and supports touch navigation,
-saved orientation, and adjustable backlight brightness. See the
+saved orientation, adjustable backlight brightness, and an optional retained
+Home Assistant MQTT brightness feed. See the
 [CYD dashboard guide](apps/cyd-dashboard/README.md) for hardware profiles,
 bridge provisioning, and setup.
 

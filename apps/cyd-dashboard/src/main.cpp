@@ -3,10 +3,12 @@
 #include <HTTPClient.h>
 #include <LittleFS.h>
 #include <Preferences.h>
+#include <PubSubClient.h>
 #include <SPI.h>
 #include <TFT_eSPI.h>
 #include <time.h>
 #include <WiFi.h>
+#include <WiFiClient.h>
 #include <WiFiManager.h>
 #include <XPT2046_Touchscreen.h>
 
@@ -20,11 +22,15 @@ constexpr uint32_t kPollIntervalMs = 60 * 1000;
 constexpr uint32_t kHttpTimeoutMs = 7000;
 constexpr uint32_t kDoubleTapWindowMs = 320;
 constexpr uint32_t kBrightnessOverlayMs = 1200;
+constexpr uint32_t kMqttReconnectIntervalMs = 5000;
 constexpr uint8_t kBacklightChannel = 0;
 constexpr uint8_t kBrightnessLevels[] = {255, 128, 48, 12};
 constexpr uint8_t kBrightnessPercents[] = {100, 50, 20, 5};
 constexpr const char* kSetupAccessPoint = "Capacity Monitor Setup";
 constexpr const char* kSnapshotCachePath = "/snapshot.json";
+constexpr const char* kOfficeMqttHost = "192.168.50.84";
+constexpr uint16_t kOfficeMqttPort = 1883;
+constexpr const char* kOfficeBrightnessTopic = "perkinslab/cyd/tonys-office/brightness";
 
 // This panel has limited contrast and a strong blue cast. A mostly neutral,
 // near-black palette reads more cleanly than dark blue surfaces on the actual
@@ -48,15 +54,23 @@ constexpr uint16_t kTime = TFT_MAGENTA;
 struct DeviceSettings {
   String endpoint;
   String token;
+  String mqttHost = kOfficeMqttHost;
+  uint16_t mqttPort = kOfficeMqttPort;
+  String mqttTopic = kOfficeBrightnessTopic;
+  String mqttUsername;
+  String mqttPassword;
   uint8_t rotation = 1;
   uint8_t brightnessIndex = 0;
 
   bool valid() const { return endpoint.startsWith("http://") && token.length() >= 16; }
+  bool mqttValid() const { return mqttHost.length() && mqttPort && mqttTopic.length() && mqttUsername.length() && mqttPassword.length(); }
 };
 
 TFT_eSPI display;
 SPIClass touchSpi(VSPI);
 XPT2046_Touchscreen touch(kTouchChipSelect, kTouchIrq);
+WiFiClient mqttSocket;
+PubSubClient mqtt(mqttSocket);
 Preferences preferences;
 DeviceSettings settings;
 JsonDocument snapshot;
@@ -73,6 +87,9 @@ uint32_t touchStartedAt = 0;
 bool tapPending = false;
 uint32_t tapPendingAt = 0;
 uint32_t brightnessOverlayUntil = 0;
+uint32_t lastMqttAttemptAt = 0;
+bool hasMqttBrightness = false;
+uint8_t mqttBrightness = 0;
 
 bool isPortrait() {
   return display.height() > display.width();
@@ -380,6 +397,11 @@ void loadSettings() {
   preferences.begin("capacity", true);
   settings.endpoint = preferences.getString("endpoint", "");
   settings.token = preferences.getString("token", "");
+  settings.mqttHost = preferences.getString("mqttHost", kOfficeMqttHost);
+  settings.mqttPort = preferences.getUShort("mqttPort", kOfficeMqttPort);
+  settings.mqttTopic = preferences.getString("mqttTopic", kOfficeBrightnessTopic);
+  settings.mqttUsername = preferences.getString("mqttUser", "");
+  settings.mqttPassword = preferences.getString("mqttPass", "");
   settings.rotation = preferences.getUChar("rotation", 1) % 4;
   settings.brightnessIndex = preferences.getUChar("brightness", 0) % 4;
   preferences.end();
@@ -389,13 +411,22 @@ void saveSettings(const DeviceSettings& updated) {
   preferences.begin("capacity", false);
   preferences.putString("endpoint", updated.endpoint);
   preferences.putString("token", updated.token);
+  preferences.putString("mqttHost", updated.mqttHost);
+  preferences.putUShort("mqttPort", updated.mqttPort);
+  preferences.putString("mqttTopic", updated.mqttTopic);
+  preferences.putString("mqttUser", updated.mqttUsername);
+  preferences.putString("mqttPass", updated.mqttPassword);
   preferences.putUChar("rotation", updated.rotation);
   preferences.putUChar("brightness", updated.brightnessIndex);
   preferences.end();
 }
 
+void applyBacklight(uint8_t value) {
+  ledcWrite(kBacklightChannel, value);
+}
+
 void applyBacklight() {
-  ledcWrite(kBacklightChannel, kBrightnessLevels[settings.brightnessIndex]);
+  applyBacklight(hasMqttBrightness ? mqttBrightness : kBrightnessLevels[settings.brightnessIndex]);
 }
 
 void drawBrightnessOverlay() {
@@ -435,15 +466,71 @@ void cycleBrightness() {
   brightnessOverlayUntil = millis() + kBrightnessOverlayMs;
 }
 
+bool parseMqttBrightness(const byte* payload, unsigned int length, uint8_t& value) {
+  if (!payload || !length || length > 3) return false;
+  uint16_t parsed = 0;
+  for (unsigned int index = 0; index < length; ++index) {
+    if (payload[index] < '0' || payload[index] > '9') return false;
+    parsed = parsed * 10 + static_cast<uint16_t>(payload[index] - '0');
+  }
+  if (parsed > 255) return false;
+  value = static_cast<uint8_t>(parsed);
+  return true;
+}
+
+void onMqttMessage(char* topic, byte* payload, unsigned int length) {
+  if (!topic || settings.mqttTopic != topic) return;
+  uint8_t received = 0;
+  if (!parseMqttBrightness(payload, length, received)) return;
+  hasMqttBrightness = true;
+  mqttBrightness = received;
+  applyBacklight(received);
+}
+
+void maintainMqtt() {
+  if (WiFi.status() != WL_CONNECTED || !settings.mqttValid()) return;
+  if (mqtt.connected()) {
+    mqtt.loop();
+    return;
+  }
+  if (millis() - lastMqttAttemptAt < kMqttReconnectIntervalMs) return;
+  lastMqttAttemptAt = millis();
+  mqtt.setServer(settings.mqttHost.c_str(), settings.mqttPort);
+  mqtt.setSocketTimeout(1);
+  const String clientId = "capacity-cyd-" + WiFi.macAddress().substring(9);
+  if (mqtt.connect(clientId.c_str(), settings.mqttUsername.c_str(), settings.mqttPassword.c_str())) {
+    mqtt.subscribe(settings.mqttTopic.c_str());
+  }
+}
+
 bool connectAndConfigure(bool forcePortal) {
   char endpointValue[161];
   char tokenValue[65] = "";
+  char mqttHostValue[65];
+  char mqttPortValue[7];
+  char mqttTopicValue[129];
+  char mqttUserValue[65];
+  char mqttPasswordValue[65] = "";
   settings.endpoint.toCharArray(endpointValue, sizeof(endpointValue));
+  settings.mqttHost.toCharArray(mqttHostValue, sizeof(mqttHostValue));
+  snprintf(mqttPortValue, sizeof(mqttPortValue), "%u", settings.mqttPort);
+  settings.mqttTopic.toCharArray(mqttTopicValue, sizeof(mqttTopicValue));
+  settings.mqttUsername.toCharArray(mqttUserValue, sizeof(mqttUserValue));
   WiFiManager manager;
   WiFiManagerParameter endpointParameter("endpoint", "Snapshot URL", endpointValue, 160);
   WiFiManagerParameter tokenParameter("token", "Display token", tokenValue, 64, "type='password'");
+  WiFiManagerParameter mqttHostParameter("mqtt_host", "MQTT broker host", mqttHostValue, 64);
+  WiFiManagerParameter mqttPortParameter("mqtt_port", "MQTT broker port", mqttPortValue, 6);
+  WiFiManagerParameter mqttTopicParameter("mqtt_topic", "MQTT brightness topic", mqttTopicValue, 128);
+  WiFiManagerParameter mqttUserParameter("mqtt_user", "MQTT username", mqttUserValue, 64);
+  WiFiManagerParameter mqttPasswordParameter("mqtt_password", "MQTT password", mqttPasswordValue, 64, "type='password'");
   manager.addParameter(&endpointParameter);
   manager.addParameter(&tokenParameter);
+  manager.addParameter(&mqttHostParameter);
+  manager.addParameter(&mqttPortParameter);
+  manager.addParameter(&mqttTopicParameter);
+  manager.addParameter(&mqttUserParameter);
+  manager.addParameter(&mqttPasswordParameter);
   manager.setConfigPortalTimeout(300);
   manager.setConnectTimeout(20);
   manager.setTitle("Capacity Monitor");
@@ -454,8 +541,19 @@ bool connectAndConfigure(bool forcePortal) {
   if (!connected) return false;
   const String submittedEndpoint = endpointParameter.getValue();
   const String submittedToken = tokenParameter.getValue();
+  const String submittedMqttHost = mqttHostParameter.getValue();
+  const String submittedMqttPort = mqttPortParameter.getValue();
+  const String submittedMqttTopic = mqttTopicParameter.getValue();
+  const String submittedMqttUser = mqttUserParameter.getValue();
+  const String submittedMqttPassword = mqttPasswordParameter.getValue();
   if (submittedEndpoint.length()) settings.endpoint = submittedEndpoint;
   if (submittedToken.length()) settings.token = submittedToken;
+  if (submittedMqttHost.length()) settings.mqttHost = submittedMqttHost;
+  const long parsedMqttPort = submittedMqttPort.toInt();
+  if (parsedMqttPort > 0 && parsedMqttPort <= 65535) settings.mqttPort = static_cast<uint16_t>(parsedMqttPort);
+  if (submittedMqttTopic.length()) settings.mqttTopic = submittedMqttTopic;
+  if (submittedMqttUser.length()) settings.mqttUsername = submittedMqttUser;
+  if (submittedMqttPassword.length()) settings.mqttPassword = submittedMqttPassword;
   if (settings.valid()) saveSettings(settings);
   return settings.valid();
 }
@@ -571,6 +669,7 @@ void setup() {
   touch.begin(touchSpi);
   touch.setRotation(1);
   loadSettings();
+  mqtt.setCallback(onMqttMessage);
   ledcAttachPin(TFT_BL, kBacklightChannel);
   applyBacklight();
   display.setRotation(settings.rotation);
@@ -588,6 +687,7 @@ void setup() {
 
 void loop() {
   updateTouchNavigation();
+  maintainMqtt();
   if (millis() - lastPollAt >= kPollIntervalMs) fetchSnapshot();
   if (millis() - lastFooterDrawAt >= 1000) {
     lastFooterDrawAt = millis();
