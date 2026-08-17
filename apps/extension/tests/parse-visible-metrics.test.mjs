@@ -161,6 +161,26 @@ test("Claude quotas: 'remaining' phrasing is used as-is", () => {
   assert.equal(metric.display, "88%");
 });
 
+test("Claude idle session does not borrow the weekly reset", () => {
+  setPage({
+    hostname: "claude.ai",
+    text: [
+      "Current session",
+      "Starts when a message is sent",
+      "0% used",
+      "Weekly limits",
+      "All models",
+      "Resets Sat 10:59 AM",
+      "17% used",
+    ].join("\n"),
+  });
+  const results = byKey(parse());
+  assert.equal(results["claude-session"].value, 100);
+  assert.equal(results["claude-session"].resetText, undefined);
+  assert.equal(results["claude-weekly"].value, 83);
+  assert.equal(results["claude-weekly"].resetText, "Resets Sat 10:59 AM");
+});
+
 test("Claude current usage page omits the retired Fable metric", () => {
   setPage({
     hostname: "claude.ai",
