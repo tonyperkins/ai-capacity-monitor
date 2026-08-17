@@ -13,8 +13,13 @@ header, footer { display: flex; align-items: center; justify-content: space-betw
 .provider-link:focus-visible { outline: 2px solid #8fe9ff; outline-offset: 2px; }
 .card-top, .quota-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .card span, .quota span { display: block; color: #d3e1f1; font-size: 12px; }
+.card-top > span, .quota-top > div { min-width: 0; }
+.card-top > span { flex: 1 1 auto; }
+.card-top > span, .quota-top span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.quota-top > div { flex: 1 1 auto; }
+.quota-top > strong { flex: 0 0 auto; }
 .card strong { display: block; margin-top: 3px; font-size: 22px; letter-spacing: -.05em; }
-.card-refresh { padding: 0; border: 0; background: transparent; color: #9fc8f2; font-size: 15px; line-height: 1; cursor: pointer; }
+.card-refresh { flex: 0 0 auto; padding: 0; border: 0; background: transparent; color: #9fc8f2; font-size: 15px; line-height: 1; cursor: pointer; }
 .card-refresh:hover { color: #8fe9ff; }
 .card-refresh:disabled { opacity: .45; cursor: wait; }
 .quotas { padding-top: 7px; border-top: 1px solid #365574; }
