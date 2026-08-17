@@ -189,6 +189,16 @@ bool parseUtcTimestamp(const char* value, time_t& result) {
   return true;
 }
 
+constexpr int resetWindowPercent(uint64_t remainingSeconds, uint64_t windowMs) {
+  return !windowMs ? -1
+                   : remainingSeconds * 1000ULL >= windowMs
+                       ? 100
+                       : static_cast<int>(remainingSeconds * 100000ULL / windowMs);
+}
+
+static_assert(resetWindowPercent(30 * 60, 60 * 60 * 1000ULL) == 50, "Reset bar must use consistent time units");
+static_assert(resetWindowPercent(60 * 60, 60 * 60 * 1000ULL) == 100, "Reset bar must be full at the start of a window");
+
 int resetTimePercent(JsonObjectConst metric) {
   if (!isPortrait()) return -1;
   const uint64_t window = metric["resetWindowMs"].as<uint64_t>();
@@ -197,8 +207,7 @@ int resetTimePercent(JsonObjectConst metric) {
   const time_t now = time(nullptr);
   if (now < 1700000000) return -1;
   if (now >= resetAt) return 0;
-  const uint64_t remaining = static_cast<uint64_t>(resetAt - now) * 100ULL;
-  return static_cast<int>(remaining >= window ? 100 : remaining / window);
+  return resetWindowPercent(static_cast<uint64_t>(resetAt - now), window);
 }
 
 void drawHeader(const String& title) {
