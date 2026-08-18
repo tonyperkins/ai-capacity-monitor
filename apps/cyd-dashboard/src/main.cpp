@@ -54,11 +54,11 @@ constexpr uint16_t kGreen = TFT_GREEN;
 constexpr uint16_t kAmber = TFT_ORANGE;
 constexpr uint16_t kRed = TFT_RED;
 constexpr uint16_t kTrack = 0x2945;
-// The reset window needs to remain legible beside the green capacity bar on
-// the inexpensive CYD panel.  A saturated magenta and a four-pixel stroke
-// survive the panel's blue cast far better than the original muted violet.
-constexpr uint16_t kTimeTrack = 0x500A;
-constexpr uint16_t kTime = TFT_MAGENTA;
+// Match the extension's reset meter: a neutral gray track with a distinct
+// purple fill. These RGB565 values compensate for the panel's blue cast while
+// keeping the reset indicator visually separate from green capacity.
+constexpr uint16_t kTimeTrack = 0x7BEF;
+constexpr uint16_t kTime = 0x9BFF;
 
 struct DeviceSettings {
   String endpoint;
@@ -365,7 +365,7 @@ void drawQuotaRow(JsonObjectConst metric, int16_t y) {
   }
   if (showResetBar) {
     const int16_t barWidth = display.width() - 22;
-    const int16_t barY = y + height - 7;
+    const int16_t barY = y + height - 9;
     display.fillRect(11, barY, barWidth, 4, kTimeTrack);
     if (resetPercent > 0) display.fillRect(11, barY, barWidth * resetPercent / 100, 4, kTime);
   }
