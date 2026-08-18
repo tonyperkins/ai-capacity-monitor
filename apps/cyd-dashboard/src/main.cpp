@@ -54,10 +54,9 @@ constexpr uint16_t kGreen = TFT_GREEN;
 constexpr uint16_t kAmber = TFT_ORANGE;
 constexpr uint16_t kRed = TFT_RED;
 constexpr uint16_t kTrack = 0x2945;
-// Match the extension's reset meter: a neutral gray track with a distinct
-// purple fill. These RGB565 values compensate for the panel's blue cast while
-// keeping the reset indicator visually separate from green capacity.
-constexpr uint16_t kTimeTrack = 0x7BEF;
+// Reuse the capacity meter's subdued track so both bars have the same
+// unfilled contrast; reserve purple for reset time remaining.
+constexpr uint16_t kTimeTrack = kTrack;
 constexpr uint16_t kTime = 0x9BFF;
 
 struct DeviceSettings {
