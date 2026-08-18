@@ -29,8 +29,8 @@ header, footer { display: flex; align-items: center; justify-content: space-betw
 .meter, .time-meter { height: 3px; margin-top: 5px; overflow: hidden; border-radius: 999px; background: #294462; }
 .meter i, .time-meter i { display: block; height: 100%; border-radius: inherit; }
 .meter i { background: linear-gradient(90deg, #3ad9ff, #8ff7c4); }
-.time-meter { height: 2px; margin-top: 4px; background: #302c54; }
-.time-meter i { background: linear-gradient(90deg, #8978ff, #c29cff); }
+.time-meter { height: 2px; margin-top: 4px; background: #617286; }
+.time-meter i { background: #9b7cff; }
 .read-state { display: flex !important; align-items: center; gap: 4px; margin-top: 4px; color: #ffdc9a !important; font-size: 11px !important; line-height: 1.2; }
 .read-state i { font-style: normal; font-size: 10px; }
 .state-suspicious-held { border-color: #c38a44; background: #211c18; }
