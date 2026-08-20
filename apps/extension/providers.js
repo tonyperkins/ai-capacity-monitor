@@ -90,7 +90,7 @@ const PROVIDERS = [
     collection: { readyTimeoutMs: 12000, maxAttempts: 3, retryDelayMs: 1500 },
     authMarkers: ["log in", "sign in", "continue with google"],
     metrics: [
-      { key: "xai-credit", provider: "xAI Balance", label: "Credits remaining", kind: "credit", unit: "usd", read: { type: "money-after", label: "Credits remaining" } },
+      { key: "xai-credit", provider: "xAI Balance", label: "Credits remaining", kind: "credit", unit: "usd", read: { type: "labeled-card-money", labels: ["Credits remaining"] } },
     ],
   },
   {
@@ -154,9 +154,14 @@ function readProviderMetrics(spec) {
   const labeledCardMoney = (labels) => {
     for (const labelText of labels) {
       const label = [...document.querySelectorAll("*")].find((element) => element.children.length === 0 && element.textContent?.trim().toLowerCase() === labelText.toLowerCase());
-      const card = label?.parentElement?.parentElement;
-      const cardAmount = card?.innerText.match(currencyToken)?.[0];
-      if (cardAmount) return cardAmount;
+      // Walk outward from the exact label and stop at the smallest container
+      // that also contains a currency value. Responsive dashboards can flatten
+      // neighboring cards into a misleading text order (xAI's usage amount can
+      // otherwise appear closer than its remaining-credit balance).
+      for (let container = label?.parentElement, depth = 0; container && depth < 6; container = container.parentElement, depth += 1) {
+        const cardAmount = container.innerText.match(currencyToken)?.[0];
+        if (cardAmount) return cardAmount;
+      }
       const nearbyAmount = moneyAfter(labelText);
       if (nearbyAmount) return nearbyAmount;
     }
@@ -171,7 +176,16 @@ function readProviderMetrics(spec) {
     const lowerLabel = label.toLowerCase();
     const indexes = [];
     for (let index = lowerText.indexOf(lowerLabel); index >= 0; index = lowerText.indexOf(lowerLabel, index + lowerLabel.length)) indexes.push(index);
-    return indexes.reverse().map((index) => text.slice(index, index + 120)).find((window) => /\d+%\s*(?:remaining|used)/i.test(window));
+    return indexes.reverse().map((index) => {
+      const maximumEnd = index + 600;
+      const nextMetricStart = spec.metrics
+        .map((metric) => metric.read?.label)
+        .filter((candidate) => candidate && candidate.toLowerCase() !== lowerLabel)
+        .map((candidate) => lowerText.indexOf(candidate.toLowerCase(), index + lowerLabel.length))
+        .filter((candidateIndex) => candidateIndex >= 0)
+        .reduce((nearest, candidateIndex) => Math.min(nearest, candidateIndex), maximumEnd);
+      return text.slice(index, Math.min(maximumEnd, nextMetricStart));
+    }).find((window) => /\d+%\s*(?:remaining|used)/i.test(window));
   };
   const labelWindows = (label, length = 600) => {
     const lowerText = text.toLowerCase();
@@ -186,7 +200,12 @@ function readProviderMetrics(spec) {
     const amount = Number(match[1]);
     return /used/i.test(match[2]) ? 100 - amount : amount;
   };
-  const resetAfter = (label) => quotaWindow(label)?.match(/Resets[^\n]+/i)?.[0] ?? labelWindows(label).map((window) => window.match(/Resets[^\n]+/i)?.[0]).find(Boolean);
+  // Reset metadata must come from the same compact window as the quota's
+  // percentage. A wider fallback can cross a section boundary—for example,
+  // Claude's idle "Current session" has no reset and is followed by the
+  // weekly "All models" reset.
+  const quotaResetAfter = (label) => quotaWindow(label)?.match(/Resets[^\n]+/i)?.[0];
+  const nearbyResetAfter = (label) => labelWindows(label, 240).map((window) => window.match(/Resets[^\n]+/i)?.[0]).find(Boolean);
   const unlimitedAfter = (label, marker) => labelWindows(label).some((window) => {
     const escapedMarker = marker.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     return new RegExp(`(?:unlimited[\\s\\S]{0,120}${escapedMarker}|${escapedMarker}[\\s\\S]{0,120}unlimited)`, "i").test(window);
@@ -217,11 +236,11 @@ function readProviderMetrics(spec) {
       if (Number.isFinite(count)) out.push({ ...base, value: count, display: `${count.toLocaleString()} credits` });
     } else if (read.type === "quota" || read.type === "unlimited-or-quota") {
       if (read.type === "unlimited-or-quota" && unlimitedAfter(read.label, read.unlimitedMarker)) {
-        out.push({ ...base, value: 100, display: "Unlimited", availability: "unlimited", resetText: resetAfter(read.label) });
+        out.push({ ...base, value: 100, display: "Unlimited", availability: "unlimited", resetText: nearbyResetAfter(read.label) });
         continue;
       }
       const remaining = remainingPercentAfter(read.label);
-      if (Number.isFinite(remaining)) out.push({ ...base, value: remaining, display: `${remaining}%`, resetText: resetAfter(read.label) });
+      if (Number.isFinite(remaining)) out.push({ ...base, value: remaining, display: `${remaining}%`, resetText: quotaResetAfter(read.label) });
     }
   }
   return out;
