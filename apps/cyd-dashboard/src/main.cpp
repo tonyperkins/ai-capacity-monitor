@@ -114,6 +114,26 @@ String fitText(String value, int16_t maximumWidth, uint8_t font) {
   return value + "~";
 }
 
+String compactResetLabel(String value) {
+  static const char* fullMonths[] = { "January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December" };
+  static const char* shortMonths[] = { "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" };
+  for (size_t index = 0; index < 12; ++index) value.replace(fullMonths[index], shortMonths[index]);
+
+  // The reset is always upcoming, so the year adds little on a 240 px screen.
+  // Drop it and the optional "at" while keeping countdown and weekday forms
+  // unchanged: "Resets August 26, 2026 at 8:58 AM" -> "Resets Aug 26 8:58 AM".
+  const int comma = value.indexOf(", 20");
+  if (comma >= 0) {
+    const int afterYear = value.indexOf(' ', comma + 2);
+    if (afterYear > comma) {
+      String suffix = value.substring(afterYear + 1);
+      if (suffix.startsWith("at ")) suffix.remove(0, 3);
+      value = value.substring(0, comma) + " " + suffix;
+    }
+  }
+  return value;
+}
+
 bool metricHasIssue(JsonObjectConst metric) {
   return strcmp(metric["readState"] | "validated", "validated") != 0;
 }
@@ -347,8 +367,8 @@ void drawQuotaRow(JsonObjectConst metric, int16_t y) {
   display.setTextDatum(TL_DATUM);
   display.setTextColor(kMuted, kPanel);
   display.drawString(name, 11, y + 3, 1);
-  const char* reset = metric["resetText"] | "";
-  if (reset[0]) display.drawString(fitText(reset, display.width() - 22, 1), 11, y + 13, 1);
+  const String reset = compactResetLabel(metric["resetText"] | "");
+  if (reset.length()) display.drawString(fitText(reset, display.width() - 22, 1), 11, y + 13, 1);
   display.setTextDatum(TR_DATUM);
   display.setTextColor(kCyan, kPanel);
   display.drawString(value, display.width() - 11, y + 2, 2);
