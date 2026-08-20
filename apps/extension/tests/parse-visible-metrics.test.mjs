@@ -233,14 +233,23 @@ test("a metric for an unrelated hostname is never produced", () => {
 });
 
 test("xAI console credit balance", () => {
-  // Real text captured from console.x.ai's landing page.
+  // Responsive card layout can flatten Credits usage/$0.23 ahead of the
+  // remaining balance even though the displayed card shows $9.79.
+  const remainingLabel = new FakeElement({ textContent: "Credits remaining" });
+  const remainingAmount = new FakeElement({ textContent: "$9.79" });
+  const remainingCard = new FakeElement({ children: [remainingLabel, remainingAmount] });
+  const usageCard = new FakeElement({ children: [
+    new FakeElement({ textContent: "Credits usage" }),
+    new FakeElement({ textContent: "$0.23" }),
+  ] });
   setPage({
     hostname: "console.x.ai",
-    text: "Welcome, Tony\nCreate API key\n\nEnable auto top up\n\nNever run out of credits\n\nEnable\nUsage\n24h\n7d\n30d\n90d\n\nSee all\n\nCredits remaining\n\n$10.00\n\nAdd\n\nCredits usage\n\n$0.00\n\nTokens\n\nRequests",
+    text: "Welcome, Tony\nUsage\n30d\nCredits remaining\nCredits usage\n$0.23\n$9.79\nTokens\n82,537",
+    dom: new FakeElement({ children: [remainingCard, usageCard] }),
   });
   const { "xai-credit": metric } = byKey(parse());
-  assert.equal(metric.value, 1000);
-  assert.equal(metric.display, "$10.00");
+  assert.equal(metric.value, 979);
+  assert.equal(metric.display, "$9.79");
 });
 
 test("Gemini Pro usage limits (current usage and weekly, both 'used' phrasing)", () => {

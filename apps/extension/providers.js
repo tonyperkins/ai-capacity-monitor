@@ -90,7 +90,7 @@ const PROVIDERS = [
     collection: { readyTimeoutMs: 12000, maxAttempts: 3, retryDelayMs: 1500 },
     authMarkers: ["log in", "sign in", "continue with google"],
     metrics: [
-      { key: "xai-credit", provider: "xAI Balance", label: "Credits remaining", kind: "credit", unit: "usd", read: { type: "money-after", label: "Credits remaining" } },
+      { key: "xai-credit", provider: "xAI Balance", label: "Credits remaining", kind: "credit", unit: "usd", read: { type: "labeled-card-money", labels: ["Credits remaining"] } },
     ],
   },
   {
@@ -154,9 +154,14 @@ function readProviderMetrics(spec) {
   const labeledCardMoney = (labels) => {
     for (const labelText of labels) {
       const label = [...document.querySelectorAll("*")].find((element) => element.children.length === 0 && element.textContent?.trim().toLowerCase() === labelText.toLowerCase());
-      const card = label?.parentElement?.parentElement;
-      const cardAmount = card?.innerText.match(currencyToken)?.[0];
-      if (cardAmount) return cardAmount;
+      // Walk outward from the exact label and stop at the smallest container
+      // that also contains a currency value. Responsive dashboards can flatten
+      // neighboring cards into a misleading text order (xAI's usage amount can
+      // otherwise appear closer than its remaining-credit balance).
+      for (let container = label?.parentElement, depth = 0; container && depth < 6; container = container.parentElement, depth += 1) {
+        const cardAmount = container.innerText.match(currencyToken)?.[0];
+        if (cardAmount) return cardAmount;
+      }
       const nearbyAmount = moneyAfter(labelText);
       if (nearbyAmount) return nearbyAmount;
     }
