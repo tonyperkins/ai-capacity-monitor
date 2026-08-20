@@ -90,7 +90,7 @@ const PROVIDERS = [
     collection: { readyTimeoutMs: 12000, maxAttempts: 3, retryDelayMs: 1500 },
     authMarkers: ["log in", "sign in", "continue with google"],
     metrics: [
-      { key: "xai-credit", provider: "xAI Balance", label: "Credits remaining", kind: "credit", unit: "usd", read: { type: "labeled-card-money", labels: ["Credits remaining"], textFallback: false } },
+      { key: "xai-credit", provider: "xAI Balance", label: "Credits remaining", kind: "credit", unit: "usd", read: { type: "labeled-card-money", labels: ["Credits remaining"], textFallback: false, maxAncestorDepth: 2 } },
     ],
   },
   {
@@ -163,14 +163,14 @@ function readProviderMetrics(spec) {
     const candidates = [...text.slice(Math.max(0, index - 120), index).matchAll(currencyToken)];
     return candidates.at(-1)?.[0] ?? null;
   };
-  const labeledCardMoney = (labels, textFallback = true) => {
+  const labeledCardMoney = (labels, textFallback = true, maxAncestorDepth = 6) => {
     for (const labelText of labels) {
       const label = [...document.querySelectorAll("*")].find((element) => element.children.length === 0 && element.textContent?.trim().toLowerCase() === labelText.toLowerCase());
       // Walk outward from the exact label and stop at the smallest container
       // that also contains a currency value. Responsive dashboards can flatten
       // neighboring cards into a misleading text order (xAI's usage amount can
       // otherwise appear closer than its remaining-credit balance).
-      for (let container = label?.parentElement, depth = 0; container && depth < 6; container = container.parentElement, depth += 1) {
+      for (let container = label?.parentElement, depth = 0; container && depth < maxAncestorDepth; container = container.parentElement, depth += 1) {
         const cardAmount = container.innerText.match(currencyToken)?.[0];
         if (cardAmount) return cardAmount;
       }
@@ -260,7 +260,7 @@ function readProviderMetrics(spec) {
     if (read.type === "money-after" || read.type === "money-before-or-after" || read.type === "labeled-card-money") {
       const raw = read.type === "money-after" ? moneyAfter(read.label)
         : read.type === "money-before-or-after" ? (moneyBefore(read.label) ?? moneyAfter(read.label))
-        : labeledCardMoney(read.labels, read.textFallback !== false);
+        : labeledCardMoney(read.labels, read.textFallback !== false, read.maxAncestorDepth);
       // The snapshot contract represents USD as integer cents. Rounding here
       // prevents binary floating-point artifacts (for example 5.10 * 100)
       // from invalidating the entire published snapshot.

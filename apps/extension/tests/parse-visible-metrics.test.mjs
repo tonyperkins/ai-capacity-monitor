@@ -30,6 +30,7 @@ test("registry is structurally sound", () => {
       if (metric.kind === "quota") assert.ok(metric.resetWindowMs > 0, `${metric.key}: quotas need a resetWindowMs`);
       const moneyReads = ["money-after", "money-before-or-after", "labeled-card-money"];
       if (moneyReads.includes(metric.read.type)) assert.equal(metric.unit, "usd", `${metric.key}: money reads must be unit usd`);
+      if (metric.read.maxAncestorDepth !== undefined) assert.ok(Number.isInteger(metric.read.maxAncestorDepth) && metric.read.maxAncestorDepth > 0, `${metric.key}: maxAncestorDepth must be a positive integer`);
       if (metric.read.type === "count-after") assert.equal(metric.unit, "count", `${metric.key}: counted reads must be unit count, never usd`);
       if (["quota", "unlimited-or-quota"].includes(metric.read.type)) assert.equal(metric.unit, "percent", `${metric.key}: quota reads must be unit percent`);
     }
@@ -253,9 +254,19 @@ test("xAI console credit balance", () => {
 });
 
 test("xAI omits a partial render instead of mistaking usage for balance", () => {
+  const remainingLabel = new FakeElement({ textContent: "Credits remaining" });
+  const remainingGroup = new FakeElement({ children: [remainingLabel] });
+  const balanceControls = new FakeElement({ children: [remainingGroup, new FakeElement({ textContent: "Add" })] });
+  const usageGroup = new FakeElement({ children: [
+    new FakeElement({ textContent: "Credits usage" }),
+    new FakeElement({ textContent: "$0.23" }),
+  ] });
   setPage({
     hostname: "console.x.ai",
     text: "Welcome, Tony\nUsage\n30d\nCredits remaining\nCredits usage\n$0.23\n$9.79\nTokens\n82,537",
+    // During xAI's partial render, the remaining amount is not mounted yet,
+    // but the usage amount already exists in the shared summary card.
+    dom: new FakeElement({ children: [balanceControls, usageGroup] }),
   });
   assert.equal(byKey(parse())["xai-credit"], undefined);
 });
