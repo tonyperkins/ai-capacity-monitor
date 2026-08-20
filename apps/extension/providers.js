@@ -90,7 +90,19 @@ const PROVIDERS = [
     collection: { readyTimeoutMs: 12000, maxAttempts: 3, retryDelayMs: 1500 },
     authMarkers: ["log in", "sign in", "continue with google"],
     metrics: [
-      { key: "xai-credit", provider: "xAI Balance", label: "Credits remaining", kind: "credit", unit: "usd", read: { type: "labeled-card-money", labels: ["Credits remaining"] } },
+      { key: "xai-credit", provider: "xAI Balance", label: "Credits remaining", kind: "credit", unit: "usd", read: { type: "labeled-card-money", labels: ["Credits remaining"], textFallback: false } },
+    ],
+  },
+  {
+    id: "grok",
+    name: "Grok",
+    hostname: "grok.com",
+    url: "https://grok.com/?q=&reasoningMode=none&voice=false&_s=usage",
+    match: "grok.com/",
+    collection: { readyTimeoutMs: 12000, maxAttempts: 3, retryDelayMs: 1500 },
+    authMarkers: ["sign in", "log in", "continue with x", "continue with google"],
+    metrics: [
+      { key: "grok-weekly", provider: "Grok", label: "Weekly limit", kind: "quota", unit: "percent", resetWindowMs: 7 * 24 * 60 * 60 * 1000, read: { type: "quota", label: "Weekly Limit" } },
     ],
   },
   {
@@ -151,7 +163,7 @@ function readProviderMetrics(spec) {
     const candidates = [...text.slice(Math.max(0, index - 120), index).matchAll(currencyToken)];
     return candidates.at(-1)?.[0] ?? null;
   };
-  const labeledCardMoney = (labels) => {
+  const labeledCardMoney = (labels, textFallback = true) => {
     for (const labelText of labels) {
       const label = [...document.querySelectorAll("*")].find((element) => element.children.length === 0 && element.textContent?.trim().toLowerCase() === labelText.toLowerCase());
       // Walk outward from the exact label and stop at the smallest container
@@ -162,8 +174,10 @@ function readProviderMetrics(spec) {
         const cardAmount = container.innerText.match(currencyToken)?.[0];
         if (cardAmount) return cardAmount;
       }
-      const nearbyAmount = moneyAfter(labelText);
-      if (nearbyAmount) return nearbyAmount;
+      if (textFallback) {
+        const nearbyAmount = moneyAfter(labelText);
+        if (nearbyAmount) return nearbyAmount;
+      }
     }
     return null;
   };
@@ -226,7 +240,7 @@ function readProviderMetrics(spec) {
     if (read.type === "money-after" || read.type === "money-before-or-after" || read.type === "labeled-card-money") {
       const raw = read.type === "money-after" ? moneyAfter(read.label)
         : read.type === "money-before-or-after" ? (moneyBefore(read.label) ?? moneyAfter(read.label))
-        : labeledCardMoney(read.labels);
+        : labeledCardMoney(read.labels, read.textFallback !== false);
       // The snapshot contract represents USD as integer cents. Rounding here
       // prevents binary floating-point artifacts (for example 5.10 * 100)
       // from invalidating the entire published snapshot.

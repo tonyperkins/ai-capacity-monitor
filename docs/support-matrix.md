@@ -11,6 +11,7 @@ enabled and signed in before collection.
 | Claude.ai | `claude.ai/new#settings/usage` | Usage-credit balance; current session; weekly all-models; monthly usage-credit cap | Claude Pro usage screen. The Fable-specific limit is currently absent; Max and future plan layouts are unverified. |
 | Claude Platform | `platform.claude.com/dashboard` | Organization credits (USD) | Claude API organization-credit display. |
 | xAI Console | `console.x.ai/` | Credits remaining (USD) | Console credit display. |
+| Grok | `grok.com/?q=&reasoningMode=none&voice=false&_s=usage` | Weekly usage remaining | Consumer Grok weekly limit. Extra Usage Credits are not currently collected. |
 | Gemini | `gemini.google.com/usage` | Current and weekly usage remaining | Gemini Pro usage limits. Gemini API postpay billing balance is deliberately not supported because it is a different product surface. |
 | Google One | `one.google.com/ai/activity` | AI credits (count) | Google One AI credit count; this is not a dollar balance. |
 
