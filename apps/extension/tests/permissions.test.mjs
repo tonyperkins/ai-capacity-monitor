@@ -19,6 +19,7 @@ test("provider and destination URLs become Chrome origin match patterns", () => 
 test("provider hosts are optional and direct HTTPS publishing can request an exact origin", () => {
   assert.equal("host_permissions" in manifest, false);
   assert.ok(manifest.optional_host_permissions.includes("https://app.kilo.ai/*"));
+  assert.ok(manifest.optional_host_permissions.includes("https://grok.com/*"));
   assert.ok(manifest.optional_host_permissions.includes("https://*/*"));
   assert.ok(manifest.optional_host_permissions.includes("http://127.0.0.1/*"));
 });

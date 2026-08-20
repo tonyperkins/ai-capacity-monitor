@@ -75,7 +75,7 @@ optional advanced components.
 
 See the complete [support matrix](docs/support-matrix.md) for the exact page,
 metric, verified plan surface, and known limitations for Kilo, OpenAI,
-ChatGPT, Claude, xAI, Gemini, and Google One.
+ChatGPT, Claude, xAI, Grok, Gemini, and Google One.
 
 ## Privacy and security
 

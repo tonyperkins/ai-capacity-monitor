@@ -252,6 +252,27 @@ test("xAI console credit balance", () => {
   assert.equal(metric.display, "$9.79");
 });
 
+test("xAI omits a partial render instead of mistaking usage for balance", () => {
+  setPage({
+    hostname: "console.x.ai",
+    text: "Welcome, Tony\nUsage\n30d\nCredits remaining\nCredits usage\n$0.23\n$9.79\nTokens\n82,537",
+  });
+  assert.equal(byKey(parse())["xai-credit"], undefined);
+});
+
+test("Grok weekly subscription usage is converted to remaining capacity", () => {
+  // Real text captured from grok.com's consumer Usage dialog.
+  setPage({
+    hostname: "grok.com",
+    href: "https://grok.com/?q=&reasoningMode=none&voice=false&_s=usage",
+    text: "Usage\nWeekly Limit\nAbout your included usage\n0%\nused\nResets August 26, 2026 at 8:58 AM\nExtra Usage Credits\n$0.00\nAdditional Credits\nBuy Credits",
+  });
+  const { "grok-weekly": metric } = byKey(parse());
+  assert.equal(metric.value, 100);
+  assert.equal(metric.display, "100%");
+  assert.equal(metric.resetText, "Resets August 26, 2026 at 8:58 AM");
+});
+
 test("Gemini Pro usage limits (current usage and weekly, both 'used' phrasing)", () => {
   // Real text captured from gemini.google.com/usage.
   setPage({
