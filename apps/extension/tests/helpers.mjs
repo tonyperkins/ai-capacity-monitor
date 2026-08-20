@@ -14,7 +14,8 @@ export async function loadProviders() {
 // element.children/.textContent/.parentElement/.innerText, plus
 // document.querySelectorAll("*"). No jsdom dependency needed.
 export class FakeElement {
-  constructor({ children = [], textContent = "", innerText } = {}) {
+  constructor({ attributes = {}, children = [], textContent = "", innerText } = {}) {
+    this.attributes = attributes;
     this.children = children;
     this.textContent = textContent;
     this._innerText = innerText;
@@ -24,6 +25,9 @@ export class FakeElement {
   get innerText() {
     if (this._innerText !== undefined) return this._innerText;
     return this.children.length ? this.children.map((child) => child.innerText).join("\n") : this.textContent;
+  }
+  getAttribute(name) {
+    return this.attributes[name] ?? null;
   }
 }
 

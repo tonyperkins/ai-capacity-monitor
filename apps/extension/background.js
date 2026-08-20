@@ -147,7 +147,7 @@ async function runCollection({ permitted: targets = [], missing = [] }) {
   const startedAt = Date.now();
   const deadline = startedAt + COLLECTION_DEADLINE_MS;
   const { tabs, opened } = await ensureCollectionTabs(targets);
-  await refreshTabs(tabs, opened);
+  await refreshTabs(tabs, opened, targets);
   await waitForTabsReady(tabs, targets, deadline);
   const outcomes = [...await readWithRetries(tabs, targets, deadline), ...missing.map((target) => ({ target, metrics: [], state: "permission-needed", errorCode: "permission-needed", attemptedAt: new Date().toISOString() }))];
   const targetKeys = new Set([...targets, ...missing].flatMap((target) => target.metrics.map((metric) => metric.key)));
@@ -392,9 +392,13 @@ async function ensureCollectionTabs(targets = PROVIDERS) {
   return { tabs, opened };
 }
 
-async function refreshTabs(tabs, openedTabIds) {
-  await Promise.all(tabs.filter((tab) => !openedTabIds.includes(tab.id)).map(async (tab) => {
-    try { await chrome.tabs.reload(tab.id); } catch { /* A closed tab is classified during collection. */ }
+async function refreshTabs(tabs, openedTabIds, targets) {
+  await Promise.all(tabs.map(async (tab, index) => {
+    if (openedTabIds.includes(tab.id)) return;
+    try {
+      if (targets[index]?.collection?.navigateOnCollect) await chrome.tabs.update(tab.id, { url: targets[index].url });
+      else await chrome.tabs.reload(tab.id);
+    } catch { /* A closed tab is classified during collection. */ }
   }));
 }
 

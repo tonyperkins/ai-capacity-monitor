@@ -99,7 +99,7 @@ const PROVIDERS = [
     hostname: "grok.com",
     url: "https://grok.com/?q=&reasoningMode=none&voice=false&_s=usage",
     match: "grok.com/",
-    collection: { readyTimeoutMs: 12000, maxAttempts: 3, retryDelayMs: 1500 },
+    collection: { readyTimeoutMs: 12000, maxAttempts: 3, retryDelayMs: 1500, navigateOnCollect: true },
     authMarkers: ["sign in", "log in", "continue with x", "continue with google"],
     metrics: [
       { key: "grok-weekly", provider: "Grok", label: "Weekly limit", kind: "quota", unit: "percent", resetWindowMs: 7 * 24 * 60 * 60 * 1000, read: { type: "quota", label: "Weekly Limit" } },
@@ -208,9 +208,29 @@ function readProviderMetrics(spec) {
     for (let index = lowerText.indexOf(lowerLabel); index >= 0; index = lowerText.indexOf(lowerLabel, index + lowerLabel.length)) indexes.push(index);
     return indexes.reverse().map((index) => text.slice(index, index + length));
   };
+  const accessibleQuotaAfter = (label) => {
+    const elements = [...document.querySelectorAll("*")];
+    const labelElement = elements.find((element) => element.children.length === 0 && element.textContent?.trim().toLowerCase() === label.toLowerCase());
+    const belongsTo = (element, container) => {
+      for (let current = element; current; current = current.parentElement) if (current === container) return true;
+      return false;
+    };
+    for (let container = labelElement?.parentElement, depth = 0; container && depth < 8; container = container.parentElement, depth += 1) {
+      const percentage = elements.find((element) => belongsTo(element, container) && /^\d+%$/.test(element.getAttribute?.("aria-label") ?? ""));
+      if (!percentage) continue;
+      const amount = Number(percentage.getAttribute("aria-label").replace("%", ""));
+      const wording = container.innerText.match(/\b(remaining|used)\b/i)?.[1];
+      if (!Number.isFinite(amount) || !wording) continue;
+      return {
+        remaining: /used/i.test(wording) ? 100 - amount : amount,
+        resetText: container.innerText.match(/Resets[^\n]+/i)?.[0],
+      };
+    }
+    return null;
+  };
   const remainingPercentAfter = (label) => {
     const match = quotaWindow(label)?.match(/(\d+)%\s*(remaining|used)/i);
-    if (!match) return null;
+    if (!match) return accessibleQuotaAfter(label)?.remaining ?? null;
     const amount = Number(match[1]);
     return /used/i.test(match[2]) ? 100 - amount : amount;
   };
@@ -218,7 +238,7 @@ function readProviderMetrics(spec) {
   // percentage. A wider fallback can cross a section boundary—for example,
   // Claude's idle "Current session" has no reset and is followed by the
   // weekly "All models" reset.
-  const quotaResetAfter = (label) => quotaWindow(label)?.match(/Resets[^\n]+/i)?.[0];
+  const quotaResetAfter = (label) => quotaWindow(label)?.match(/Resets[^\n]+/i)?.[0] ?? accessibleQuotaAfter(label)?.resetText;
   const nearbyResetAfter = (label) => labelWindows(label, 240).map((window) => window.match(/Resets[^\n]+/i)?.[0]).find(Boolean);
   const unlimitedAfter = (label, marker) => labelWindows(label).some((window) => {
     const escapedMarker = marker.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

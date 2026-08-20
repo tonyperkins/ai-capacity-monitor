@@ -15,6 +15,12 @@ test("collection uses extension-owned pinned tabs instead of matching ordinary p
   assert.match(collectionTabs, /chrome\.storage\.local\.set\(\{ collectionTabIds: nextCollectionTabIds \}\)/);
 });
 
+test("providers with transient usage URLs navigate back before collection", () => {
+  assert.match(source, /refreshTabs\(tabs, opened, targets\)/);
+  assert.match(source, /collection\?\.navigateOnCollect/);
+  assert.match(source, /chrome\.tabs\.update\(tab\.id, \{ url: targets\[index\]\.url \}\)/);
+});
+
 test("collection tabs are cleaned up when requested or when their provider is disabled", () => {
   assert.match(source, /if \(closeOpenedTabs\) await closeCollectionTabs\(tabs\.map\(\(tab\) => tab\.id\)\)/);
   assert.match(source, /async function pruneDisabledProviders/);

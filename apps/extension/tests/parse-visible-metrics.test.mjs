@@ -261,15 +261,27 @@ test("xAI omits a partial render instead of mistaking usage for balance", () => 
 });
 
 test("Grok weekly subscription usage is converted to remaining capacity", () => {
-  // Real text captured from grok.com's consumer Usage dialog.
+  assert.equal(PROVIDERS.find((provider) => provider.id === "grok").collection.navigateOnCollect, true);
+  // Grok's animated number exposes its value through aria-label rather than
+  // rendered innerText. The surrounding card supplies "used" and the reset.
+  const percentage = new FakeElement({ attributes: { "aria-label": "12%", role: "img" } });
+  const card = new FakeElement({ children: [
+    percentage,
+    new FakeElement({ textContent: "used" }),
+    new FakeElement({ textContent: "Resets August 26, 2026 at 8:58 AM" }),
+    new FakeElement({ textContent: "Grok Build" }),
+    new FakeElement({ textContent: "12%" }),
+  ] });
+  const section = new FakeElement({ children: [new FakeElement({ textContent: "Weekly Limit" }), card] });
   setPage({
     hostname: "grok.com",
     href: "https://grok.com/?q=&reasoningMode=none&voice=false&_s=usage",
-    text: "Usage\nWeekly Limit\nAbout your included usage\n0%\nused\nResets August 26, 2026 at 8:58 AM\nExtra Usage Credits\n$0.00\nAdditional Credits\nBuy Credits",
+    text: "Usage\nWeekly Limit\nused\nResets August 26, 2026 at 8:58 AM\nGrok Build\n12%\nExtra Usage Credits\nAdditional Credits\nBuy Credits",
+    dom: new FakeElement({ children: [section] }),
   });
   const { "grok-weekly": metric } = byKey(parse());
-  assert.equal(metric.value, 100);
-  assert.equal(metric.display, "100%");
+  assert.equal(metric.value, 88);
+  assert.equal(metric.display, "88%");
   assert.equal(metric.resetText, "Resets August 26, 2026 at 8:58 AM");
 });
 
