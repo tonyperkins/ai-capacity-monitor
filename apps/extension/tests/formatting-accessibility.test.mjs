@@ -36,6 +36,12 @@ test("popup exposes semantic regions, card labels, and meter values", () => {
   assert.match(packageScript, /"strings\.js"/);
 });
 
+test("popup width remains stable when its vertical scrollbar appears", () => {
+  assert.match(popupCss, /:root\s*\{[^}]*width:\s*420px[^}]*scrollbar-gutter:\s*stable[^}]*overflow-y:\s*scroll/s);
+  assert.match(popupCss, /body\s*\{[^}]*width:\s*420px/s);
+  assert.doesNotMatch(popupCss, /width:\s*min\([^;]*100vw/);
+});
+
 test("popup footer prefers the completed collection timestamp over an older retained reading", () => {
   assert.match(popupSource, /collectedAt = data\.lastCollectedAt \?\? oldestVisibleCollectedAt\(visibleMetrics\) \?\? null/);
 });
