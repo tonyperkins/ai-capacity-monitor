@@ -76,7 +76,11 @@ const PROVIDERS = [
     hostname: "platform.claude.com",
     url: "https://platform.claude.com/settings/billing",
     match: "platform.claude.com/settings/billing",
-    collection: { readyTimeoutMs: 12000, maxAttempts: 3, retryDelayMs: 1500 },
+    // The billing shell reports a complete document before its balance API
+    // response hydrates the "Remaining balance" card. Keep retrying within the
+    // collection deadline instead of treating that transient Loading state as
+    // a missing reading.
+    collection: { readyTimeoutMs: 15000, maxAttempts: 8, retryDelayMs: 1500 },
     authMarkers: ["log in", "sign in", "continue with google"],
     metrics: [
       { key: "claude-api-credit", provider: "Claude API Balance", label: "Remaining balance", kind: "credit", unit: "usd", read: { type: "money-before-or-after", label: "Remaining balance" } },

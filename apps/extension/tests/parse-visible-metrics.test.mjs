@@ -76,6 +76,13 @@ test("Claude API remaining balance on the billing page", () => {
   assert.equal(metric.label, "Remaining balance");
 });
 
+test("Claude API collection allows time for the billing balance to hydrate", () => {
+  const provider = PROVIDERS.find((candidate) => candidate.id === "claude-platform");
+  assert.equal(provider.url, "https://platform.claude.com/settings/billing");
+  assert.ok(provider.collection.maxAttempts >= 6);
+  assert.ok((provider.collection.maxAttempts - 1) * provider.collection.retryDelayMs >= 7500);
+});
+
 test("negative (parenthesized) currency values are preserved", () => {
   setPage({
     hostname: "platform.openai.com",
