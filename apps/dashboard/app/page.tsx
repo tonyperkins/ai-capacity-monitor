@@ -17,7 +17,7 @@ const credits = [
   { key: "kilo-credit", provider: "Kilo Balance", value: "$6.13", note: "Remaining credits", tone: "lime" },
   { key: "openai-api-credit", provider: "OpenAI API Balance", value: "$7.61", note: "Prepaid API credit", tone: "cyan" },
   { key: "claude-usage-credit", provider: "Claude.ai Balance", value: "$10.93", note: "Usage-credit balance", tone: "amber" },
-  { key: "claude-api-credit", provider: "Claude API Balance", value: "$5.90", note: "Organization credits", tone: "violet" },
+  { key: "claude-api-credit", provider: "Claude API Balance", value: "$5.90", note: "Remaining balance", tone: "violet" },
 ];
 
 const quotas = [

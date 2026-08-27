@@ -74,12 +74,12 @@ const PROVIDERS = [
     id: "claude-platform",
     name: "Claude Platform",
     hostname: "platform.claude.com",
-    url: "https://platform.claude.com/dashboard",
-    match: "platform.claude.com/dashboard",
+    url: "https://platform.claude.com/settings/billing",
+    match: "platform.claude.com/settings/billing",
     collection: { readyTimeoutMs: 12000, maxAttempts: 3, retryDelayMs: 1500 },
     authMarkers: ["log in", "sign in", "continue with google"],
     metrics: [
-      { key: "claude-api-credit", provider: "Claude API Balance", label: "Organization credits", kind: "credit", unit: "usd", read: { type: "money-after", label: "Organization credits" } },
+      { key: "claude-api-credit", provider: "Claude API Balance", label: "Remaining balance", kind: "credit", unit: "usd", read: { type: "money-before-or-after", label: "Remaining balance" } },
     ],
   },
   {

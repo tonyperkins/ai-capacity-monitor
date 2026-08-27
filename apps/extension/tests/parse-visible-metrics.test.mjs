@@ -64,14 +64,16 @@ test("OpenAI API credit balance", () => {
   assert.equal(metric.kind, "credit");
 });
 
-test("Claude API organization credit balance", () => {
+test("Claude API remaining balance on the billing page", () => {
   setPage({
     hostname: "platform.claude.com",
-    text: "Billing\nOrganization credits\n$3.64 remaining this period",
+    href: "https://platform.claude.com/settings/billing",
+    text: "Billing\nCredit balance\nYour credit balance will be consumed with API, Claude Code and playground usage.\n$2.66\nRemaining balance\nSpend limits\n$0.98 spent\nInvoice history\nJul 16, 2026\tCredit grant\t$6.40",
   });
   const { "claude-api-credit": metric } = byKey(parse());
-  assert.equal(metric.value, 364);
-  assert.equal(metric.display, "$3.64");
+  assert.equal(metric.value, 266);
+  assert.equal(metric.display, "$2.66");
+  assert.equal(metric.label, "Remaining balance");
 });
 
 test("negative (parenthesized) currency values are preserved", () => {
