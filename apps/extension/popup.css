@@ -1,6 +1,6 @@
-:root { color-scheme: dark; }
+:root { width: 420px; color-scheme: dark; scrollbar-gutter: stable; overflow-y: scroll; }
 * { box-sizing: border-box; }
-body { width: min(420px, 100vw); margin: 0; background: #081221; color: #f1f6ff; font-family: Inter, system-ui, sans-serif; }
+body { width: 420px; margin: 0; background: #081221; color: #f1f6ff; font-family: Inter, system-ui, sans-serif; }
 main { padding: 12px; }
 header, footer { display: flex; align-items: center; justify-content: space-between; }
 .brand { font: 700 11px ui-monospace, monospace; letter-spacing: .15em; }
