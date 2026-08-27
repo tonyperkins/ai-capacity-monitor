@@ -48,7 +48,8 @@ const PROVIDERS = [
     collection: { readyTimeoutMs: 12000, maxAttempts: 4, retryDelayMs: 1500 },
     authMarkers: ["log in", "sign in", "continue with google"],
     metrics: [
-      { key: "chatgpt-weekly", provider: "ChatGPT Plus", label: "Weekly usage", kind: "quota", unit: "percent", resetWindowMs: 7 * 24 * 60 * 60 * 1000, read: { type: "quota", label: "Weekly usage limit" } },
+      { key: "chatgpt-session", provider: "ChatGPT Plus", label: "5-hour limit", kind: "quota", unit: "percent", resetWindowMs: 5 * 60 * 60 * 1000, read: { type: "quota", label: "5-hour limit" } },
+      { key: "chatgpt-weekly", provider: "ChatGPT Plus", label: "Weekly limit", kind: "quota", unit: "percent", resetWindowMs: 7 * 24 * 60 * 60 * 1000, read: { type: "quota", labels: ["Weekly limit", "Weekly usage limit"] } },
     ],
   },
   {
@@ -153,6 +154,7 @@ function readProviderMetrics(spec) {
   if (location.hostname !== spec.hostname) return [];
   const text = document.body.innerText;
   const currencyToken = /(?:-\s*\$\s*|\$\s*-?\s*)[0-9,.]+|\(\s*\$\s*[0-9,.]+\s*\)/g;
+  const asLabels = (read) => read.labels ?? [read.label];
   const moneyAfter = (label) => {
     const match = text.match(new RegExp(`${label}[\\s\\S]{0,160}?((?:-\\s*\\$\\s*|\\$\\s*-?\\s*)[0-9,.]+|\\(\\s*\\$\\s*[0-9,.]+\\s*\\))`, "i"));
     return match ? match[1] : null;
@@ -193,13 +195,13 @@ function readProviderMetrics(spec) {
     return indexes.reverse().map((index) => {
       const maximumEnd = index + 600;
       const nextMetricStart = spec.metrics
-        .map((metric) => metric.read?.label)
+        .flatMap((metric) => metric.read?.labels ?? [metric.read?.label])
         .filter((candidate) => candidate && candidate.toLowerCase() !== lowerLabel)
         .map((candidate) => lowerText.indexOf(candidate.toLowerCase(), index + lowerLabel.length))
         .filter((candidateIndex) => candidateIndex >= 0)
         .reduce((nearest, candidateIndex) => Math.min(nearest, candidateIndex), maximumEnd);
       return text.slice(index, Math.min(maximumEnd, nextMetricStart));
-    }).find((window) => /\d+%\s*(?:remaining|used)/i.test(window));
+    }).find((window) => /\d+%\s*(?:remaining|left|used)/i.test(window));
   };
   const labelWindows = (label, length = 600) => {
     const lowerText = text.toLowerCase();
@@ -219,7 +221,7 @@ function readProviderMetrics(spec) {
       const percentage = elements.find((element) => belongsTo(element, container) && /^\d+%$/.test(element.getAttribute?.("aria-label") ?? ""));
       if (!percentage) continue;
       const amount = Number(percentage.getAttribute("aria-label").replace("%", ""));
-      const wording = container.innerText.match(/\b(remaining|used)\b/i)?.[1];
+      const wording = container.innerText.match(/\b(remaining|left|used)\b/i)?.[1];
       if (!Number.isFinite(amount) || !wording) continue;
       return {
         remaining: /used/i.test(wording) ? 100 - amount : amount,
@@ -228,17 +230,17 @@ function readProviderMetrics(spec) {
     }
     return null;
   };
-  const remainingPercentAfter = (label) => {
-    const match = quotaWindow(label)?.match(/(\d+)%\s*(remaining|used)/i);
-    if (!match) return accessibleQuotaAfter(label)?.remaining ?? null;
+  const remainingPercentAfter = (labels) => {
+    const match = labels.map((label) => quotaWindow(label)?.match(/(\d+)%\s*(?:remaining|left|used)/i)).find(Boolean);
+    if (!match) return labels.map((label) => accessibleQuotaAfter(label)?.remaining).find(Number.isFinite) ?? null;
     const amount = Number(match[1]);
-    return /used/i.test(match[2]) ? 100 - amount : amount;
+    return /used/i.test(match[0]) ? 100 - amount : amount;
   };
   // Reset metadata must come from the same compact window as the quota's
   // percentage. A wider fallback can cross a section boundary—for example,
   // Claude's idle "Current session" has no reset and is followed by the
   // weekly "All models" reset.
-  const quotaResetAfter = (label) => quotaWindow(label)?.match(/Resets[^\n]+/i)?.[0] ?? accessibleQuotaAfter(label)?.resetText;
+  const quotaResetAfter = (labels) => labels.map((label) => quotaWindow(label)?.match(/Resets[^\n]+/i)?.[0] ?? accessibleQuotaAfter(label)?.resetText).find(Boolean);
   const nearbyResetAfter = (label) => labelWindows(label, 240).map((window) => window.match(/Resets[^\n]+/i)?.[0]).find(Boolean);
   const unlimitedAfter = (label, marker) => labelWindows(label).some((window) => {
     const escapedMarker = marker.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -273,8 +275,9 @@ function readProviderMetrics(spec) {
         out.push({ ...base, value: 100, display: "Unlimited", availability: "unlimited", resetText: nearbyResetAfter(read.label) });
         continue;
       }
-      const remaining = remainingPercentAfter(read.label);
-      if (Number.isFinite(remaining)) out.push({ ...base, value: remaining, display: `${remaining}%`, resetText: quotaResetAfter(read.label) });
+      const labels = asLabels(read);
+      const remaining = remainingPercentAfter(labels);
+      if (Number.isFinite(remaining)) out.push({ ...base, value: remaining, display: `${remaining}%`, resetText: quotaResetAfter(labels) });
     }
   }
   return out;

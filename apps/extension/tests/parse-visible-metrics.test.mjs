@@ -130,14 +130,27 @@ test("Kilo balance is omitted (not fabricated as $0) when no label has a nearby 
   assert.equal(results["kilo-credit"], undefined);
 });
 
-test("ChatGPT weekly quota with 'remaining' phrasing, plus reset text", () => {
+test("ChatGPT subscription limits expose 5-hour and weekly windows", () => {
+  setPage({
+    hostname: "chatgpt.com",
+    text: "Plan limits\n5-hour limit\nResets in 3h 5m\n0% left\nWeekly limit\nResets in 5d 20h\n81% left",
+  });
+  const results = byKey(parse());
+  assert.equal(results["chatgpt-session"].value, 0);
+  assert.equal(results["chatgpt-session"].display, "0%");
+  assert.equal(results["chatgpt-session"].resetText, "Resets in 3h 5m");
+  assert.equal(results["chatgpt-weekly"].value, 81);
+  assert.equal(results["chatgpt-weekly"].display, "81%");
+  assert.equal(results["chatgpt-weekly"].resetText, "Resets in 5d 20h");
+});
+
+test("ChatGPT weekly quota accepts the legacy usage label", () => {
   setPage({
     hostname: "chatgpt.com",
     text: "Weekly usage limit\n38% remaining\nResets Jul 23, 2026 5:47 PM",
   });
   const { "chatgpt-weekly": metric } = byKey(parse());
   assert.equal(metric.value, 38);
-  assert.equal(metric.display, "38%");
   assert.equal(metric.resetText, "Resets Jul 23, 2026 5:47 PM");
 });
 
