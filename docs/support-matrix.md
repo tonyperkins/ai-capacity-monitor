@@ -7,7 +7,7 @@ enabled and signed in before collection.
 | --- | --- | --- | --- |
 | Kilo | `app.kilo.ai/credits` | Remaining credits (USD) | Kilo credits page. The reader recognizes **Your credit balance** and older card labels; it does not use monthly-usage totals. |
 | OpenAI Platform | `platform.openai.com/home` | Prepaid API credit (USD) | Platform credit-balance display. Organization-specific billing layouts may differ. |
-| ChatGPT | `chatgpt.com/#settings/Usage` | Weekly usage remaining | ChatGPT Plus weekly limit. Other plans or reset layouts are not yet verified. |
+| ChatGPT | `chatgpt.com/#settings/Usage` | 5-hour and weekly usage remaining | ChatGPT Plus plan limits. The reader accepts the current “% left” wording and the legacy weekly-label layout. Other plans are not yet verified. |
 | Claude.ai | `claude.ai/new#settings/usage` | Usage-credit balance; current session; weekly all-models; monthly usage-credit cap | Claude Pro usage screen. The Fable-specific limit is currently absent; Max and future plan layouts are unverified. |
 | Claude Platform | `platform.claude.com/dashboard` | Organization credits (USD) | Claude API organization-credit display. |
 | xAI Console | `console.x.ai/` | Credits remaining (USD) | Console credit display. |
