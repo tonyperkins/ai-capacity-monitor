@@ -293,7 +293,7 @@ test("xAI omits a partial render instead of mistaking usage for balance", () => 
   assert.equal(byKey(parse())["xai-credit"], undefined);
 });
 
-test("Grok weekly subscription usage is converted to remaining capacity", () => {
+test("Grok weekly SuperGrok usage is converted to remaining capacity", () => {
   assert.equal(PROVIDERS.find((provider) => provider.id === "grok").collection.navigateOnCollect, true);
   // Grok's animated number exposes its value through aria-label rather than
   // rendered innerText. The surrounding card supplies "used" and the reset.
@@ -305,17 +305,29 @@ test("Grok weekly subscription usage is converted to remaining capacity", () => 
     new FakeElement({ textContent: "Grok Build" }),
     new FakeElement({ textContent: "12%" }),
   ] });
-  const section = new FakeElement({ children: [new FakeElement({ textContent: "Weekly Limit" }), card] });
+  const section = new FakeElement({ children: [new FakeElement({ textContent: "Weekly SuperGrok Limit" }), card] });
   setPage({
     hostname: "grok.com",
     href: "https://grok.com/?q=&reasoningMode=none&voice=false&_s=usage",
-    text: "Usage\nWeekly Limit\nused\nResets August 26, 2026 at 8:58 AM\nGrok Build\n12%\nExtra Usage Credits\nAdditional Credits\nBuy Credits",
+    text: "Usage\nWeekly SuperGrok Limit\nused\nResets August 26, 2026 at 8:58 AM\nGrok Build\n12%\nExtra Usage Credits\nAdditional Credits\nBuy Credits",
     dom: new FakeElement({ children: [section] }),
   });
   const { "grok-weekly": metric } = byKey(parse());
   assert.equal(metric.value, 88);
   assert.equal(metric.display, "88%");
   assert.equal(metric.resetText, "Resets August 26, 2026 at 8:58 AM");
+});
+
+test("Grok weekly usage keeps supporting the previous Weekly Limit heading", () => {
+  setPage({
+    hostname: "grok.com",
+    href: "https://grok.com/?q=&reasoningMode=none&voice=false&_s=usage",
+    text: "Usage\nWeekly Limit\n3% used\nResets in 7 days\nExtra Usage Credits",
+  });
+  const { "grok-weekly": metric } = byKey(parse());
+  assert.equal(metric.value, 97);
+  assert.equal(metric.display, "97%");
+  assert.equal(metric.resetText, "Resets in 7 days");
 });
 
 test("Grok extra usage credits are read from the accessible animated balance", () => {

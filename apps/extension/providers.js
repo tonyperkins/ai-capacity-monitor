@@ -108,7 +108,7 @@ const PROVIDERS = [
     authMarkers: ["sign in", "log in", "continue with x", "continue with google"],
     metrics: [
       { key: "grok-extra-credit", provider: "Grok Extra Credits", label: "Additional credits", kind: "credit", unit: "usd", read: { type: "labeled-card-money", labels: ["Extra Usage Credits"], textFallback: false, maxAncestorDepth: 3 } },
-      { key: "grok-weekly", provider: "Grok", label: "Weekly limit", kind: "quota", unit: "percent", resetWindowMs: 7 * 24 * 60 * 60 * 1000, read: { type: "quota", label: "Weekly Limit" } },
+      { key: "grok-weekly", provider: "Grok", label: "Weekly limit", kind: "quota", unit: "percent", resetWindowMs: 7 * 24 * 60 * 60 * 1000, read: { type: "quota", labels: ["Weekly SuperGrok Limit", "Weekly Limit"] } },
     ],
   },
   {
