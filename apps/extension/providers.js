@@ -107,6 +107,7 @@ const PROVIDERS = [
     collection: { readyTimeoutMs: 12000, maxAttempts: 3, retryDelayMs: 1500, navigateOnCollect: true },
     authMarkers: ["sign in", "log in", "continue with x", "continue with google"],
     metrics: [
+      { key: "grok-extra-credit", provider: "Grok Extra Credits", label: "Additional credits", kind: "credit", unit: "usd", read: { type: "labeled-card-money", labels: ["Extra Usage Credits"], textFallback: false, maxAncestorDepth: 3 } },
       { key: "grok-weekly", provider: "Grok", label: "Weekly limit", kind: "quota", unit: "percent", resetWindowMs: 7 * 24 * 60 * 60 * 1000, read: { type: "quota", label: "Weekly Limit" } },
     ],
   },
@@ -170,8 +171,14 @@ function readProviderMetrics(spec) {
     return candidates.at(-1)?.[0] ?? null;
   };
   const labeledCardMoney = (labels, textFallback = true, maxAncestorDepth = 6) => {
+    const exactCurrency = /^(?:-\s*\$\s*|\$\s*-?\s*)[0-9,.]+$|^\(\s*\$\s*[0-9,.]+\s*\)$/;
+    const belongsTo = (element, container) => {
+      for (let current = element; current; current = current.parentElement) if (current === container) return true;
+      return false;
+    };
+    const elements = [...document.querySelectorAll("*")];
     for (const labelText of labels) {
-      const label = [...document.querySelectorAll("*")].find((element) => element.children.length === 0 && element.textContent?.trim().toLowerCase() === labelText.toLowerCase());
+      const label = elements.find((element) => element.children.length === 0 && element.textContent?.trim().toLowerCase() === labelText.toLowerCase());
       // Walk outward from the exact label and stop at the smallest container
       // that also contains a currency value. Responsive dashboards can flatten
       // neighboring cards into a misleading text order (xAI's usage amount can
@@ -179,6 +186,14 @@ function readProviderMetrics(spec) {
       for (let container = label?.parentElement, depth = 0; container && depth < maxAncestorDepth; container = container.parentElement, depth += 1) {
         const cardAmount = container.innerText.match(currencyToken)?.[0];
         if (cardAmount) return cardAmount;
+        // Animated counters used by Grok expose the visible dollar amount only
+        // through aria-label, so inspect accessible values inside the same
+        // tightly scoped card before walking to a broader ancestor.
+        const accessibleAmount = elements
+          .filter((element) => belongsTo(element, container))
+          .map((element) => element.getAttribute?.("aria-label")?.trim())
+          .find((value) => value && exactCurrency.test(value));
+        if (accessibleAmount) return accessibleAmount;
       }
       if (textFallback) {
         const nearbyAmount = moneyAfter(labelText);

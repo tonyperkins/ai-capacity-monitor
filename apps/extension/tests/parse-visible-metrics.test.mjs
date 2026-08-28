@@ -318,6 +318,43 @@ test("Grok weekly subscription usage is converted to remaining capacity", () => 
   assert.equal(metric.resetText, "Resets August 26, 2026 at 8:58 AM");
 });
 
+test("Grok extra usage credits are read from the accessible animated balance", () => {
+  const creditsHeading = new FakeElement({ textContent: "Extra Usage Credits" });
+  const headingWrapper = new FakeElement({ children: [creditsHeading] });
+  const animatedBalance = new FakeElement({ attributes: { "aria-label": "$12.50", role: "img" } });
+  const creditsCard = new FakeElement({ children: [
+    headingWrapper,
+    animatedBalance,
+    new FakeElement({ textContent: "Additional Credits" }),
+    new FakeElement({ textContent: "Buy Credits" }),
+  ] });
+  setPage({
+    hostname: "grok.com",
+    href: "https://grok.com/?q=&reasoningMode=none&voice=false&_s=usage",
+    text: "Usage\nWeekly SuperGrok Limit\n0% used\nExtra Usage Credits\nAdditional Credits\nBuy Credits",
+    dom: creditsCard,
+  });
+  const { "grok-extra-credit": metric } = byKey(parse());
+  assert.equal(metric.value, 1250);
+  assert.equal(metric.display, "$12.50");
+  assert.equal(metric.provider, "Grok Extra Credits");
+});
+
+test("Grok extra usage credits preserve a displayed zero balance", () => {
+  const creditsHeading = new FakeElement({ textContent: "Extra Usage Credits" });
+  const animatedBalance = new FakeElement({ attributes: { "aria-label": "$0.00", role: "img" } });
+  const creditsCard = new FakeElement({ children: [creditsHeading, animatedBalance, new FakeElement({ textContent: "Additional Credits" })] });
+  setPage({
+    hostname: "grok.com",
+    href: "https://grok.com/?q=&reasoningMode=none&voice=false&_s=usage",
+    text: "Usage\nExtra Usage Credits\nAdditional Credits",
+    dom: creditsCard,
+  });
+  const { "grok-extra-credit": metric } = byKey(parse());
+  assert.equal(metric.value, 0);
+  assert.equal(metric.display, "$0.00");
+});
+
 test("Gemini Pro usage limits (current usage and weekly, both 'used' phrasing)", () => {
   // Real text captured from gemini.google.com/usage.
   setPage({
