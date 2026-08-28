@@ -79,8 +79,12 @@ test("Claude API remaining balance on the billing page", () => {
 test("Claude API collection allows time for the billing balance to hydrate", () => {
   const provider = PROVIDERS.find((candidate) => candidate.id === "claude-platform");
   assert.equal(provider.url, "https://platform.claude.com/settings/billing");
-  assert.ok(provider.collection.maxAttempts >= 6);
-  assert.ok((provider.collection.maxAttempts - 1) * provider.collection.retryDelayMs >= 7500);
+  assert.ok(provider.collection.maxAttempts >= 12);
+  // Claude's billing shell can report document-complete while its balance
+  // remains a skeleton for well over 12 seconds. Keep a provider-specific
+  // retry budget inside the collector's 30-second hard deadline.
+  assert.ok((provider.collection.maxAttempts - 1) * provider.collection.retryDelayMs >= 20000);
+  assert.ok((provider.collection.maxAttempts - 1) * provider.collection.retryDelayMs < 30000);
 });
 
 test("negative (parenthesized) currency values are preserved", () => {

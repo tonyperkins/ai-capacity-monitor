@@ -80,7 +80,7 @@ const PROVIDERS = [
     // response hydrates the "Remaining balance" card. Keep retrying within the
     // collection deadline instead of treating that transient Loading state as
     // a missing reading.
-    collection: { readyTimeoutMs: 15000, maxAttempts: 8, retryDelayMs: 1500 },
+    collection: { readyTimeoutMs: 20000, maxAttempts: 14, retryDelayMs: 2000 },
     authMarkers: ["log in", "sign in", "continue with google"],
     metrics: [
       { key: "claude-api-credit", provider: "Claude API Balance", label: "Remaining balance", kind: "credit", unit: "usd", read: { type: "money-before-or-after", label: "Remaining balance" } },
