@@ -21,6 +21,14 @@ test("providers with transient usage URLs navigate back before collection", () =
   assert.match(source, /chrome\.tabs\.update\(tab\.id, \{ url: targets\[index\]\.url \}\)/);
 });
 
+test("authenticated response readers run in the provider page and retain the DOM fallback", () => {
+  const reader = source.match(/async function readProviderWithRetries[\s\S]*?\n}\n\nfunction sleep/)[0];
+  assert.match(reader, /if \(target\.apiRead\)/);
+  assert.match(reader, /world: "MAIN"/);
+  assert.match(reader, /func: readProviderApiMetrics/);
+  assert.match(reader, /func: readProviderMetrics/);
+});
+
 test("collection tabs are cleaned up when requested or when their provider is disabled", () => {
   assert.match(source, /if \(closeOpenedTabs\) await closeCollectionTabs\(tabs\.map\(\(tab\) => tab\.id\)\)/);
   assert.match(source, /async function pruneDisabledProviders/);

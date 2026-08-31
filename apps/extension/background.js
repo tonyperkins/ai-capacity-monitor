@@ -433,6 +433,15 @@ async function readProviderWithRetries(tab, target, deadline) {
         const [{ result: inspection }] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: inspectProviderPage, args: [target] });
         if (inspection?.state === "unauthenticated") return { target, metrics: [], state: "unauthenticated", errorCode: inspection.errorCode, attemptedAt };
         if (inspection?.state === "failed") return { target, metrics: [], state: "failed", errorCode: inspection.errorCode, attemptedAt };
+        if (target.apiRead) {
+          const [{ result: apiResult }] = await chrome.scripting.executeScript({
+            target: { tabId: tab.id },
+            world: "MAIN",
+            func: readProviderApiMetrics,
+            args: [target],
+          });
+          if (apiResult?.length) return { target, metrics: apiResult, state: "validated", errorCode: null, attemptedAt };
+        }
         const [{ result }] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: readProviderMetrics, args: [{ hostname: target.hostname, metrics: target.metrics }] });
         if (result?.length) return { target, metrics: result, state: "validated", errorCode: null, attemptedAt };
         errorCode = "no-readable-values";

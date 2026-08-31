@@ -12,6 +12,9 @@ When you enable a provider, Capacity Monitor receives permission for that
 provider's site and reads the displayed credit-balance and usage-limit values
 needed to show its popup. It may inspect the provider page to determine whether
 you are signed in and may open or reload that provider's page while collecting.
+When a minimized browser window prevents a displayed card from rendering, a
+provider adapter may validate the authenticated response that supplies that
+specific card and retain only the normalized reading.
 It does not ask for, display, or store your passwords, cookies, authentication
 tokens, account identifiers, or raw provider-page text.
 
