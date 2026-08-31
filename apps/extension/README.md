@@ -4,6 +4,13 @@ The extension is independently useful: it collects provider readings, keeps the 
 
 Each collection uses one extension-owned, pinned background tab per enabled provider. The extension never reads or reloads a provider tab you opened yourself. A new collection tab loads normally on its first use; later collections reload that same pinned tab before reading the displayed value. The optional **Use a dedicated minimized collection window** setting keeps those tabs out of the main Chrome window; it is off by default and never brings that window to the foreground. Kilo is collected from its dedicated Credits page. If a credit balance temporarily reports a suspicious zero, the extension preserves the prior verified value and schedules a narrowly scoped confirmation collection instead of overwriting it. The popup also includes an optional **Close Capacity Monitor collection tabs after collection** setting for people who prefer not to keep the pinned tabs around.
 
+Most adapters parse the rendered provider page. When Chrome throttles rendering
+in a minimized window, an adapter may instead validate the specific
+authenticated response that supplies that same displayed card. This currently
+applies to Claude Platform's remaining API balance. The response is read in the
+provider tab, reduced immediately to the normalized balance, and neither raw
+response content nor account identifiers are stored.
+
 Each adapter declares its own readiness and retry policy. A collection has a
 30-second global deadline, so one unavailable provider cannot keep a scheduled
 pass running indefinitely. The popup marks a metric as a fresh reading,

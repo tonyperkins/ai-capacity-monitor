@@ -1,6 +1,6 @@
 # Architecture
 
-The extension is the primary product and source of local truth. Provider adapters run in authenticated tabs, emit validated metric readings, and preserve the last verified reading when a page is unsettled or a reading is suspect.
+The extension is the primary product and source of local truth. Provider adapters run in authenticated tabs, emit validated metric readings, and preserve the last verified reading when a page is unsettled or a reading is suspect. Adapters normally parse rendered page content; a narrowly scoped authenticated-response reader may supply the same card value when Chrome indefinitely throttles hidden-page rendering. Such readers validate a fixed response shape and emit only the normalized metric, never raw response data or account identifiers.
 
 The popup reads the local snapshot. Publishing is best-effort and must never block or degrade local use.
 

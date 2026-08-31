@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { FakeElement, loadProviders, setPage } from "./helpers.mjs";
 
-const { PROVIDERS, inspectProviderPage, readProviderMetrics } = await loadProviders();
+const { PROVIDERS, inspectProviderPage, readProviderApiMetrics, readProviderMetrics } = await loadProviders();
 
 // Runs the engine across every registered provider spec, mirroring the old
 // single-function behavior: only the spec matching the current hostname
@@ -76,15 +76,40 @@ test("Claude API remaining balance on the billing page", () => {
   assert.equal(metric.label, "Remaining balance");
 });
 
-test("Claude API collection allows time for the billing balance to hydrate", () => {
+test("Claude API balance reads its authenticated credits response without waiting for hidden-tab rendering", async () => {
   const provider = PROVIDERS.find((candidate) => candidate.id === "claude-platform");
   assert.equal(provider.url, "https://platform.claude.com/settings/billing");
-  assert.ok(provider.collection.maxAttempts >= 12);
-  // Claude's billing shell can report document-complete while its balance
-  // remains a skeleton for well over 12 seconds. Keep a provider-specific
-  // retry budget inside the collector's 30-second hard deadline.
-  assert.ok((provider.collection.maxAttempts - 1) * provider.collection.retryDelayMs >= 20000);
-  assert.ok((provider.collection.maxAttempts - 1) * provider.collection.retryDelayMs < 30000);
+  assert.deepEqual(provider.apiRead, { type: "claude-prepaid-credits", metricKey: "claude-api-credit" });
+  globalThis.location = { hostname: "platform.claude.com" };
+  globalThis.performance = {
+    getEntriesByType: () => [{ name: "https://platform.claude.com/api/organizations/e0468b47-925e-45f3-9113-67126f9fa059/payment_method" }],
+  };
+  globalThis.fetch = async (url, options) => {
+    assert.equal(url, "/api/organizations/e0468b47-925e-45f3-9113-67126f9fa059/prepaid/credits");
+    assert.equal(options.credentials, "include");
+    return {
+      ok: true,
+      json: async () => ({ currency: "USD", balance: { credits: { amount_minor: 266, exponent: 2 } } }),
+    };
+  };
+  const [metric] = await readProviderApiMetrics(provider);
+  assert.deepEqual(metric, {
+    key: "claude-api-credit",
+    provider: "Claude API Balance",
+    label: "Remaining balance",
+    kind: "credit",
+    unit: "usd",
+    value: 266,
+    display: "$2.66",
+  });
+});
+
+test("Claude API response reader rejects malformed money and leaves the DOM fallback available", async () => {
+  const provider = PROVIDERS.find((candidate) => candidate.id === "claude-platform");
+  globalThis.location = { hostname: "platform.claude.com" };
+  globalThis.performance = { getEntriesByType: () => [{ name: "https://platform.claude.com/api/organizations/e0468b47-925e-45f3-9113-67126f9fa059/rate_limits" }] };
+  globalThis.fetch = async () => ({ ok: true, json: async () => ({ currency: "USD", balance: { credits: { amount_minor: 2.66, exponent: 2 } } }) });
+  assert.deepEqual(await readProviderApiMetrics(provider), []);
 });
 
 test("negative (parenthesized) currency values are preserved", () => {

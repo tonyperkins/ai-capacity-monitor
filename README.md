@@ -21,8 +21,10 @@ its own.
 
 ## What it does
 
-- Reads visible balances and plan-limit readings from selected, authenticated
-  provider pages.
+- Reads balances and plan-limit readings from selected, authenticated provider
+  pages. Adapters normally parse the rendered card; when Chrome throttles a
+  hidden page, an adapter may validate the specific authenticated response that
+  supplies that same card.
 - Keeps the latest safe reading in the local browser profile, with explicit
   diagnostics when a value is stale, suspicious, unavailable, or needs sign-in.
 - Requests each provider's site access only when you enable it.

@@ -6,7 +6,7 @@ import { readFile } from "node:fs/promises";
 // changing how the extension loads at runtime.
 export async function loadProviders() {
   const source = await readFile(new URL("../providers.js", import.meta.url), "utf8");
-  const factory = new Function(`${source}\nreturn { PROVIDERS, inspectProviderPage, readProviderMetrics };`);
+  const factory = new Function(`${source}\nreturn { PROVIDERS, inspectProviderPage, readProviderApiMetrics, readProviderMetrics };`);
   return factory();
 }
 

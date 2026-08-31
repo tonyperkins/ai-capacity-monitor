@@ -76,11 +76,12 @@ const PROVIDERS = [
     hostname: "platform.claude.com",
     url: "https://platform.claude.com/settings/billing",
     match: "platform.claude.com/settings/billing",
-    // The billing shell reports a complete document before its balance API
-    // response hydrates the "Remaining balance" card. Keep retrying within the
-    // collection deadline instead of treating that transient Loading state as
-    // a missing reading.
-    collection: { readyTimeoutMs: 20000, maxAttempts: 14, retryDelayMs: 2000 },
+    // A minimized Chrome window may indefinitely throttle the React render
+    // that replaces Claude's billing skeleton. Read the same authenticated
+    // credits response that supplies the card, then retain the DOM parser as
+    // a fallback if that response shape changes.
+    apiRead: { type: "claude-prepaid-credits", metricKey: "claude-api-credit" },
+    collection: { readyTimeoutMs: 12000, maxAttempts: 4, retryDelayMs: 1500 },
     authMarkers: ["log in", "sign in", "continue with google"],
     metrics: [
       { key: "claude-api-credit", provider: "Claude API Balance", label: "Remaining balance", kind: "credit", unit: "usd", read: { type: "money-before-or-after", label: "Remaining balance" } },
@@ -150,6 +151,43 @@ function inspectProviderPage(spec) {
   return routeLooksLikeLogin || hasAuthMarker
     ? { state: "unauthenticated", errorCode: "sign-in-required" }
     : { state: "ready", errorCode: null };
+}
+
+// Fixed authenticated-response reader. It runs in the provider page's main
+// world so the request uses that page's existing session, but returns only a
+// validated metric value. It never returns cookies, identifiers, or raw API
+// content. An empty result deliberately falls through to the DOM parser.
+async function readProviderApiMetrics(spec) {
+  if (location.hostname !== spec.hostname || spec.apiRead?.type !== "claude-prepaid-credits") return [];
+  try {
+    const organizationMatch = performance.getEntriesByType("resource")
+      .map((entry) => String(entry.name ?? ""))
+      .map((name) => name.match(/\/api\/organizations\/([0-9a-f-]{36})(?:\/|$)/i))
+      .find(Boolean);
+    if (!organizationMatch) return [];
+    const response = await fetch(`/api/organizations/${organizationMatch[1]}/prepaid/credits`, {
+      credentials: "include",
+      headers: { Accept: "application/json" },
+    });
+    if (!response.ok) return [];
+    const payload = await response.json();
+    const amountMinor = payload?.balance?.credits?.amount_minor;
+    const exponent = payload?.balance?.credits?.exponent;
+    if (payload?.currency !== "USD" || !Number.isInteger(amountMinor) || amountMinor < 0 || exponent !== 2) return [];
+    const definition = spec.metrics.find((metric) => metric.key === spec.apiRead.metricKey);
+    if (!definition || definition.kind !== "credit" || definition.unit !== "usd") return [];
+    return [{
+      key: definition.key,
+      provider: definition.provider,
+      label: definition.label,
+      kind: definition.kind,
+      unit: definition.unit,
+      value: amountMinor,
+      display: `$${(amountMinor / 100).toFixed(2)}`,
+    }];
+  } catch {
+    return [];
+  }
 }
 
 // Fixed parser engine. Injected into provider tabs with a single provider's
