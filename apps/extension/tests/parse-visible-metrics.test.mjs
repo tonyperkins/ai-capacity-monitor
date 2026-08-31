@@ -81,12 +81,16 @@ test("Claude API balance reads its authenticated credits response without waitin
   assert.equal(provider.url, "https://platform.claude.com/settings/billing");
   assert.deepEqual(provider.apiRead, { type: "claude-prepaid-credits", metricKey: "claude-api-credit" });
   globalThis.location = { hostname: "platform.claude.com" };
-  globalThis.performance = {
-    getEntriesByType: () => [{ name: "https://platform.claude.com/api/organizations/e0468b47-925e-45f3-9113-67126f9fa059/payment_method" }],
-  };
   globalThis.fetch = async (url, options) => {
-    assert.equal(url, "/api/organizations/e0468b47-925e-45f3-9113-67126f9fa059/prepaid/credits");
     assert.equal(options.credentials, "include");
+    if (url === "/api/organizations") return {
+      ok: true,
+      json: async () => [
+        { uuid: "11111111-1111-4111-8111-111111111111", billing_type: "stripe_subscription" },
+        { uuid: "e0468b47-925e-45f3-9113-67126f9fa059", billing_type: "prepaid" },
+      ],
+    };
+    assert.equal(url, "/api/organizations/e0468b47-925e-45f3-9113-67126f9fa059/prepaid/credits");
     return {
       ok: true,
       json: async () => ({ currency: "USD", balance: { credits: { amount_minor: 266, exponent: 2 } } }),
@@ -107,8 +111,9 @@ test("Claude API balance reads its authenticated credits response without waitin
 test("Claude API response reader rejects malformed money and leaves the DOM fallback available", async () => {
   const provider = PROVIDERS.find((candidate) => candidate.id === "claude-platform");
   globalThis.location = { hostname: "platform.claude.com" };
-  globalThis.performance = { getEntriesByType: () => [{ name: "https://platform.claude.com/api/organizations/e0468b47-925e-45f3-9113-67126f9fa059/rate_limits" }] };
-  globalThis.fetch = async () => ({ ok: true, json: async () => ({ currency: "USD", balance: { credits: { amount_minor: 2.66, exponent: 2 } } }) });
+  globalThis.fetch = async (url) => url === "/api/organizations"
+    ? { ok: true, json: async () => [{ uuid: "e0468b47-925e-45f3-9113-67126f9fa059", billing_type: "prepaid" }] }
+    : { ok: true, json: async () => ({ currency: "USD", balance: { credits: { amount_minor: 2.66, exponent: 2 } } }) };
   assert.deepEqual(await readProviderApiMetrics(provider), []);
 });
 
