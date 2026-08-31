@@ -468,9 +468,31 @@ async function closeCollectionTabs(tabIds) {
   const { collectionTabIds = {}, collectionWindowId = null } = await chrome.storage.local.get(["collectionTabIds", "collectionWindowId"]);
   const closing = new Set(tabIds);
   const retained = Object.fromEntries(Object.entries(collectionTabIds).filter(([, tabId]) => !closing.has(tabId)));
-  if (!Object.keys(retained).length && Number.isInteger(collectionWindowId)) return closeCollectionWindow();
+  if (!Object.keys(retained).length && Number.isInteger(collectionWindowId)) {
+    // Chrome closes a window with its final tab. Keep a local inert anchor so
+    // close-after-collection can remove every provider tab without forcing the
+    // next scheduled pass to create (and potentially foreground) a new window.
+    const anchorId = await ensureCollectionWindowAnchor(collectionWindowId);
+    if (Number.isInteger(anchorId)) {
+      await closeTabs(tabIds.filter((tabId) => tabId !== anchorId));
+      await chrome.storage.local.set({ collectionTabIds: {} });
+      return;
+    }
+    return closeCollectionWindow();
+  }
   await closeTabs(tabIds);
   await chrome.storage.local.set({ collectionTabIds: retained });
+}
+
+async function ensureCollectionWindowAnchor(windowId) {
+  const anchorUrl = chrome.runtime.getURL("collector.html");
+  try {
+    const existing = (await chrome.tabs.query({ windowId })).find((tab) => tab.url === anchorUrl);
+    if (existing) return existing.id;
+    return (await chrome.tabs.create({ windowId, url: anchorUrl, active: false, pinned: false })).id;
+  } catch {
+    return null;
+  }
 }
 
 async function ensureCollectionWindow(initialUrl) {

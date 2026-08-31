@@ -7,6 +7,7 @@ const collectionTabs = source.match(/async function ensureCollectionTabs[\s\S]*?
 const optionsHtml = await readFile(new URL("../options.html", import.meta.url), "utf8");
 const optionsSource = await readFile(new URL("../options.js", import.meta.url), "utf8");
 const popupSource = await readFile(new URL("../popup.js", import.meta.url), "utf8");
+const collectorHtml = await readFile(new URL("../collector.html", import.meta.url), "utf8");
 
 test("collection uses extension-owned pinned tabs instead of matching ordinary provider tabs", () => {
   assert.match(collectionTabs, /collectionTabIds/);
@@ -33,6 +34,15 @@ test("collection tabs are cleaned up when requested or when their provider is di
   assert.match(source, /if \(closeOpenedTabs\) await closeCollectionTabs\(tabs\.map\(\(tab\) => tab\.id\)\)/);
   assert.match(source, /async function pruneDisabledProviders/);
   assert.match(source, /await closeTabs\(staleTabIds\)/);
+});
+
+test("close-after-collection keeps the minimized window alive without provider tabs", () => {
+  const closer = source.match(/async function closeCollectionTabs[\s\S]*?\n}\n\nasync function ensureCollectionWindow\(/)[0];
+  assert.match(closer, /ensureCollectionWindowAnchor\(collectionWindowId\)/);
+  assert.match(closer, /chrome\.runtime\.getURL\("collector\.html"\)/);
+  assert.match(closer, /active: false/);
+  assert.doesNotMatch(closer, /focused: true/);
+  assert.match(collectorHtml, /keeps the minimized collection window ready/i);
 });
 
 test("a provider-card refresh publishes the complete retained snapshot", () => {
