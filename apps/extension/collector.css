@@ -1,0 +1,32 @@
+:root {
+  color-scheme: dark;
+  font: 16px/1.5 system-ui, sans-serif;
+  background: #071426;
+  color: #dcecff;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+}
+
+main {
+  width: min(34rem, calc(100% - 3rem));
+}
+
+.eyebrow {
+  color: #4de1ff;
+  font: 700 0.75rem/1.2 ui-monospace, monospace;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+h1 {
+  margin: 0.4rem 0 0.75rem;
+}
+
+main > :last-child {
+  color: #a9c0db;
+}
