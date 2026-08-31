@@ -160,20 +160,34 @@ function inspectProviderPage(spec) {
 async function readProviderApiMetrics(spec) {
   if (location.hostname !== spec.hostname || spec.apiRead?.type !== "claude-prepaid-credits") return [];
   try {
-    const organizationMatch = performance.getEntriesByType("resource")
-      .map((entry) => String(entry.name ?? ""))
-      .map((name) => name.match(/\/api\/organizations\/([0-9a-f-]{36})(?:\/|$)/i))
-      .find(Boolean);
-    if (!organizationMatch) return [];
-    const response = await fetch(`/api/organizations/${organizationMatch[1]}/prepaid/credits`, {
+    const organizationsResponse = await fetch("/api/organizations", {
       credentials: "include",
       headers: { Accept: "application/json" },
     });
-    if (!response.ok) return [];
-    const payload = await response.json();
-    const amountMinor = payload?.balance?.credits?.amount_minor;
-    const exponent = payload?.balance?.credits?.exponent;
-    if (payload?.currency !== "USD" || !Number.isInteger(amountMinor) || amountMinor < 0 || exponent !== 2) return [];
+    if (!organizationsResponse.ok) return [];
+    const organizations = await organizationsResponse.json();
+    if (!Array.isArray(organizations)) return [];
+    // Prefer prepaid organizations so a subscription-only organization does
+    // not add a predictable failed request, while still supporting a future
+    // response that omits or renames billing_type.
+    const candidates = [...organizations].sort((a, b) => Number(b?.billing_type === "prepaid") - Number(a?.billing_type === "prepaid"));
+    let amountMinor = null;
+    for (const organization of candidates) {
+      const uuid = String(organization?.uuid ?? "");
+      if (!/^[0-9a-f-]{36}$/i.test(uuid)) continue;
+      const response = await fetch(`/api/organizations/${uuid}/prepaid/credits`, {
+        credentials: "include",
+        headers: { Accept: "application/json" },
+      });
+      if (!response.ok) continue;
+      const payload = await response.json();
+      const candidateAmount = payload?.balance?.credits?.amount_minor;
+      const exponent = payload?.balance?.credits?.exponent;
+      if (payload?.currency !== "USD" || !Number.isInteger(candidateAmount) || candidateAmount < 0 || exponent !== 2) continue;
+      amountMinor = candidateAmount;
+      break;
+    }
+    if (!Number.isInteger(amountMinor)) return [];
     const definition = spec.metrics.find((metric) => metric.key === spec.apiRead.metricKey);
     if (!definition || definition.kind !== "credit" || definition.unit !== "usd") return [];
     return [{
