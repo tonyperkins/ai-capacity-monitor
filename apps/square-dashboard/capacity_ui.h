@@ -324,11 +324,17 @@ inline void update_rows() {
 // past its tick has capacity to spare, one that stops short is running ahead
 // of the clock. A provider with no short window leaves that cell empty.
 inline void home_cell(lv_obj_t* card,int x,const Metric& m,time_t now) {
-  constexpr int W=156;
-  label(card,m.display,x,5,100,&lv_font_montserrat_32,ink(m));
-  label(card,m.attention()?"prior":capacity_model::window_name(m.window_ms),x+104,8,52,&lv_font_montserrat_14,m.attention()?AMBER:MUTED);
+  constexpr int W=164, SIDE=66;  // SIDE fits the widest countdown, "23h 59m"
+  label(card,m.display,x,5,W-SIDE,&lv_font_montserrat_32,ink(m));
+  auto* window=label(card,m.attention()?"prior":capacity_model::window_name(m.window_ms),x+W-SIDE,8,SIDE,&lv_font_montserrat_14,m.attention()?AMBER:MUTED);
   const bool timed=m.reset && now>1700000000;
-  label(card,!timed?"":m.reset>now?(m.reset-now<60?"<1m":capacity_model::duration(m.reset-now)):"due",x+104,25,52,&lv_font_montserrat_14);
+  auto* countdown=label(card,!timed?"":m.reset>now?(m.reset-now<60?"<1m":capacity_model::duration(m.reset-now)):"due",x+W-SIDE,25,SIDE,&lv_font_montserrat_14);
+  // One fixed line each, right-aligned to the end of the bar, so a long
+  // countdown can never wrap onto the bar.
+  for (auto* text : {window,countdown}) {
+    lv_obj_set_height(text,lv_font_montserrat_14.line_height);
+    lv_obj_set_style_text_align(text,LV_TEXT_ALIGN_RIGHT,0);
+  }
   bar(card,x,49,W,8,int(m.value),level(m));
   const int left=capacity_model::reset_percent(m,now);
   if (left>=0) {
@@ -341,14 +347,14 @@ inline void render_home(const std::vector<capacity_model::Provider>& list, time_
   for (size_t i=0;i<list.size();++i) {
     const auto& p=list[i];
     auto* card=tap_area(body,0,int(i)*pitch,448,pitch-5,p.id);
-    label(card,p.name,12,8,96,&lv_font_montserrat_18);
+    label(card,p.name,10,8,88,&lv_font_montserrat_18);
     // Scoped limits, such as a model-specific weekly cap, sit under the name.
     for (size_t j=0;j<p.extras.size() && j<2;++j) {
       const auto& m=*p.extras[j];
-      label(card,capacity_model::short_name(m)+" "+m.display,12,33+int(j)*17,88,&lv_font_montserrat_14,level(m)==CYAN?MUTED:level(m));
+      label(card,capacity_model::short_name(m)+" "+m.display,10,33+int(j)*17,88,&lv_font_montserrat_14,level(m)==CYAN?MUTED:level(m));
     }
-    if (p.quick) home_cell(card,112,*p.quick,now);
-    if (p.main) home_cell(card,280,*p.main,now);
+    if (p.quick) home_cell(card,100,*p.quick,now);
+    if (p.main) home_cell(card,274,*p.main,now);
   }
 }
 inline void message(const std::string& title,const std::string& detail) {

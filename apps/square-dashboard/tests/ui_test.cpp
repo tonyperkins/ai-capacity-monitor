@@ -40,7 +40,7 @@ int main() {
   add("claude/session","claude","Claude","Current session",36,5,3*H);
   add("claude/week","claude","Claude","Current week (all models)",84,168,5*D+14*H);
   add("claude/fable","claude","Claude","Current week (Fable)",82,168,5*D+14*H)["parent"]="claude/week";
-  add("chatgpt/5h","chatgpt","ChatGPT","5-hour limit",100,5,5*H);
+  add("chatgpt/5h","chatgpt","ChatGPT","5-hour limit",100,5,4*H+52*60);
   add("chatgpt/weekly","chatgpt","ChatGPT","Weekly limit",66,168,3*D+12*H);
   add("gemini/models-weekly","gemini","Gemini","Gemini Models · Weekly Limit",91,168,5*D+15*H)["group"]="Gemini Models";
   add("gemini/argon","gemini","Gemini","Gemini 4 Argon · Weekly Limit",45,168,5*D+15*H)["group"]="Gemini 4 Argon";
@@ -108,6 +108,11 @@ int main() {
   assert(lv_obj_get_child_count(capacity_ui::body)==5);
   lv_obj_update_layout(capacity_ui::body);assert(lv_obj_get_scroll_bottom(capacity_ui::body)<=0);
   shot(display,"home");
+  // The widest countdown and percentage fit their fixed-width, single-line labels.
+  { lv_point_t size;
+    lv_text_get_size(&size,"23h 59m",&lv_font_montserrat_14,0,0,1000,LV_TEXT_FLAG_NONE);assert(size.x<=66);
+    lv_text_get_size(&size,"100%",&lv_font_montserrat_32,0,0,1000,LV_TEXT_FLAG_NONE);assert(size.x<=98);
+    lv_text_get_size(&size,"ChatGPT",&lv_font_montserrat_18,0,0,1000,LV_TEXT_FLAG_NONE);assert(size.x<=88); }
   // Grok has no short window, so its row has fewer children than Claude's.
   assert(lv_obj_get_child_count(lv_obj_get_child(capacity_ui::body,3))<lv_obj_get_child_count(lv_obj_get_child(capacity_ui::body,0)));
   // A row opens every reading of that provider.
