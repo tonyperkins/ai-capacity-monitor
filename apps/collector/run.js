@@ -81,8 +81,8 @@ if (once) {
     if (!sameSecret(config.token, token)) return sendJson(response, 401, { error: "unauthorized" });
     // The display asks for a fresh reading with this header. The reply is
     // still the current snapshot; the new one is ready a few seconds later.
-    // At most one extra pass every 30 seconds.
-    if (request.headers["x-capacity-refresh"] === "1" && !running && Date.now() - lastStarted > 30000) refresh();
+    // At most one extra pass a minute.
+    if (request.headers["x-capacity-refresh"] === "1" && !running && Date.now() - lastStarted > 55000) refresh();
     if (!latest) return sendJson(response, 503, { error: "snapshot-unavailable" });
     return sendJson(response, 200, latest);
   }).listen(config.port, config.host, () => console.log(`Capacity collector serving ${config.host}:${config.port}, collecting every ${config.intervalMs / 60000} min`));

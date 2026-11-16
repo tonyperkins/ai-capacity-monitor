@@ -47,7 +47,7 @@ optional `providerId`, `group` and `parent` fields.
 
 - `GET /snapshot/v1` with `Authorization: Bearer <display token>`. Adding the
   header `X-Capacity-Refresh: 1` also starts a new reading (at most one extra
-  pass every 30 seconds); the reply is still the current snapshot, and the
+  pass a minute); the reply is still the current snapshot, and the
   new one is ready a few seconds later.
 - `GET /health` (no values, only per-source state)
 

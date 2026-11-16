@@ -27,8 +27,13 @@ inline lv_obj_t* dots[3] = {};
 // All three pages always exist. `body` is the page being built or, between
 // renders, the page on screen.
 inline lv_obj_t *pager = nullptr, *pages[3] = {};
-inline bool pull_armed = false, settling = false;
-inline std::string limits_key, busy_text;
+inline bool pull_armed = false, settling = false, refreshed = false;
+inline std::string limits_key, busy_text, notice;
+inline uint32_t refreshed_at = 0, notice_at = 0;
+inline lv_obj_t* pull_bar = nullptr;
+constexpr int PULL = 44;            // overscroll, in pixels, that arms a refresh
+constexpr int PAGE_SWIPE = 50;      // drag, in pixels, that turns the page
+constexpr uint32_t REFRESH_GAP_MS = 60000;
 inline std::string layout_key, detail_key, detail_provider;
 struct Row { std::string key; lv_obj_t *name, *value, *note, *reset, *bar, *time_bar; };
 inline std::vector<Row> rows;
@@ -51,6 +56,7 @@ inline std::string display_text(std::string text) {
   return out;
 }
 inline void render();
+inline void make_pullable(lv_obj_t* page);
 inline void update_status();
 inline lv_color_t color(uint32_t value) { return lv_color_hex(value); }
 inline uint32_t accent(const Metric& m) { return m.attention() ? AMBER : m.kind == "quota" && !m.unlimited && m.value <= 10 ? RED : CYAN; }
@@ -177,7 +183,8 @@ inline void show_issues(lv_event_t*) {
     y+=lv_obj_get_height(text)+24;
   }
 }
-inline void refresh_clicked(lv_event_t*) { if (!busy && refresh_action) refresh_action(); }
+inline void request_refresh();
+inline void refresh_clicked(lv_event_t*) { request_refresh(); }
 // Puts the current page in the middle slot of the pager with its neighbours
 // on either side, so there is always a page to swipe to in both directions.
 inline void place_pages() {
@@ -398,6 +405,8 @@ inline void render() {
     if (!have_data) message("Connecting to your data","Waiting for the collector's snapshot.");
     else if (list.empty()) message("No limits to show","The collector has not reported any limits yet.");
     else render_home(list,now);
+    make_pullable(body);
+    lv_obj_set_scrollbar_mode(body,list.size()>5?LV_SCROLLBAR_MODE_AUTO:LV_SCROLLBAR_MODE_OFF);
   }
   // Limits rows are created once per set of keys and then updated in place.
   auto selected = capacity_model::select(snapshot,"quota");
@@ -428,6 +437,7 @@ inline void render() {
         lv_obj_set_height(text,lv_obj_get_style_text_font(text,LV_PART_MAIN)->line_height);
       rows.push_back(row);
     }
+    make_pullable(body);
   }
   body=pages[view];
   update_rows(); update_status();
@@ -444,12 +454,13 @@ inline void update_status() {
   else if (!have_data) text=online?"Connected / waiting for readings":"Waiting for the collector";
   else {
     const auto age = now > snapshot.collected ? now-snapshot.collected : 0;
-    text = !online?"Offline / showing last data":age>2400?"Older snapshot": "Connected";
-    if (now > 1700000000) text += " / collected " + capacity_model::duration(age) + " ago";
+    text = !online?"Offline":age>2400?"Stale": "Connected";
+    if (now > 1700000000) text += age<60 ? " / collected just now" : " / collected " + capacity_model::duration(age) + " ago";
     else text += " / clock syncing";
     shade=(!online || age>2400)?AMBER:MUTED;
   }
   if (pull_armed) shade=CYAN;
+  else if (!notice.empty()) { if (lv_tick_elaps(notice_at)<4000) { text=notice; shade=CYAN; } else notice.clear(); }
   set_text(status,text);lv_obj_set_style_text_color(status,color(shade),0);
   if (issues_button) {
     if (snapshot.issue_count) {
@@ -486,26 +497,54 @@ inline void set_brightness_level(float value) {
 }
 // A page swipe is a scroll of the pager, which LVGL animates. When it comes
 // to rest on a neighbour, that page becomes the current one.
+// A page swipe is a scroll of the pager. When the finger lifts, a drag of
+// more than PAGE_SWIPE pixels carries on to the neighbouring page and a
+// shorter one springs back. When the pager comes to rest on a neighbour,
+// that page becomes the current one.
 inline void pager_settled(lv_event_t*) {
   if (settling) return;
   const int x=lv_obj_get_scroll_x(pager);
-  if (x!=0 && x!=960) return;
-  view=(view+(x?1:2))%3;
-  place_pages();
+  if (x==480) return;
+  if (x==0 || x==960) { view=(view+(x?1:2))%3; place_pages(); return; }
+  lv_obj_scroll_to_x(pager,x-480>PAGE_SWIPE?960:480-x>PAGE_SWIPE?0:480,LV_ANIM_ON);
 }
-inline void request_refresh() { if (!busy && refresh_action) refresh_action(); }
-// Pull down to refresh, on a page whose content scrolls: drag past the top
-// far enough, then let go.
+inline void show_notice(const char* text) {
+  notice=text; notice_at=lv_tick_get(); update_status();
+  auto* timer=lv_timer_create([](lv_timer_t*) { update_status(); },4100,nullptr);
+  lv_timer_set_repeat_count(timer,1);
+}
+// Refresh asks the collector for a new reading, at most once a minute.
+inline void request_refresh() {
+  if (busy || !refresh_action) return;
+  if (refreshed && lv_tick_elaps(refreshed_at)<REFRESH_GAP_MS) { show_notice("Refreshed less than a minute ago"); return; }
+  refreshed=true; refreshed_at=lv_tick_get();
+  refresh_action();
+}
+// Pull down to refresh: drag a page past its top and let go. The page moves
+// with the finger, a bar under the status strip fills as the pull deepens,
+// and the status reads "Release to refresh" once it is far enough.
 inline void page_scrolled(lv_event_t* e) {
   auto* page=static_cast<lv_obj_t*>(lv_event_get_target(e));
   if (lv_event_get_code(e)==LV_EVENT_SCROLL) {
-    // Only a finger arms it; the spring back to the top must not.
-    if (!pull_armed && lv_indev_active() && lv_obj_get_scroll_y(page)<=-44) { pull_armed=true; update_status(); }
-  } else if (pull_armed) { pull_armed=false; update_status(); request_refresh(); }
+    // Only a finger counts; the spring back to the top must not.
+    if (!lv_indev_active()) return;
+    const int pull=std::max(0,-int(lv_obj_get_scroll_y(page)));
+    if (pull>0) { lv_obj_remove_flag(pull_bar,LV_OBJ_FLAG_HIDDEN); lv_bar_set_value(pull_bar,std::min(100,pull*100/PULL),LV_ANIM_OFF); }
+    else lv_obj_add_flag(pull_bar,LV_OBJ_FLAG_HIDDEN);
+    if (pull_armed != (pull>=PULL)) { pull_armed=pull>=PULL; update_status(); }
+  } else {
+    lv_obj_add_flag(pull_bar,LV_OBJ_FLAG_HIDDEN);
+    if (pull_armed) { pull_armed=false; update_status(); request_refresh(); }
+  }
 }
-// Swipes that are not scrolls. On a detail page a swipe right goes back
-// (touch calibration ignores it). On a page whose content does not scroll, a
-// swipe down refreshes.
+// A page that fits the screen would not scroll, so it could not be pulled.
+// One extra pixel of content makes every page pullable.
+inline void make_pullable(lv_obj_t* page) {
+  auto* spacer=lv_obj_create(page); box(spacer,0,418,1,1,BG,0); plain(spacer);
+  lv_obj_set_style_bg_opa(spacer,LV_OPA_TRANSP,0);
+}
+// Swipes that are not scrolls: on a detail page a swipe right goes back.
+// Touch calibration ignores swipes.
 inline void gesture(lv_event_t*) {
   auto* indev=lv_indev_active(); if (!indev) return;
   const auto dir=lv_indev_get_gesture_dir(indev);
@@ -513,8 +552,7 @@ inline void gesture(lv_event_t*) {
   // A swipe is never a tap: whatever it does, its release must not click
   // the row it started on or whatever is drawn next.
   lv_indev_wait_release(indev);
-  if (modal) { if (dir==LV_DIR_RIGHT) close_detail(nullptr); }
-  else if (dir==LV_DIR_BOTTOM) request_refresh();
+  if (modal && dir==LV_DIR_RIGHT) close_detail(nullptr);
 }
 inline void begin(std::function<void()> refresh, std::function<void(float)> set_brightness) {
   refresh_action=std::move(refresh);brightness_action=std::move(set_brightness);
@@ -522,6 +560,7 @@ inline void begin(std::function<void()> refresh, std::function<void(float)> set_
   // A status strip, the body, then page dots. The strip is a button only
   // while there are issues: tapping it lists them.
   status=label(root,"Connecting...",16,9,330,&lv_font_montserrat_14,MUTED);
+  lv_obj_set_height(status,lv_font_montserrat_14.line_height);
   issues_button=lv_obj_create(root);box(issues_button,0,0,480,34,BG,0);plain(issues_button);
   lv_obj_set_style_bg_opa(issues_button,LV_OPA_TRANSP,0);
   lv_obj_add_flag(issues_button,LV_OBJ_FLAG_CLICKABLE);
@@ -530,8 +569,9 @@ inline void begin(std::function<void()> refresh, std::function<void(float)> set_
   lv_obj_set_style_text_align(count,LV_TEXT_ALIGN_RIGHT,0);
   lv_obj_add_flag(issues_button,LV_OBJ_FLAG_HIDDEN);
   pager=lv_obj_create(root);box(pager,0,34,480,418,BG,0);lv_obj_set_style_border_width(pager,0,0);
-  lv_obj_add_flag(pager,LV_OBJ_FLAG_SCROLLABLE);lv_obj_add_flag(pager,LV_OBJ_FLAG_SCROLL_ONE);
-  lv_obj_set_scroll_dir(pager,LV_DIR_HOR);lv_obj_set_scroll_snap_x(pager,LV_SCROLL_SNAP_START);
+  // No snapping or momentum of LVGL's own: pager_settled decides where a swipe lands.
+  lv_obj_add_flag(pager,LV_OBJ_FLAG_SCROLLABLE);lv_obj_remove_flag(pager,LV_OBJ_FLAG_SCROLL_MOMENTUM);
+  lv_obj_set_scroll_dir(pager,LV_DIR_HOR);
   lv_obj_set_scrollbar_mode(pager,LV_SCROLLBAR_MODE_OFF);
   lv_obj_add_event_cb(pager,pager_settled,LV_EVENT_SCROLL_END,nullptr);
   for (int i=0;i<3;++i) {
@@ -543,6 +583,7 @@ inline void begin(std::function<void()> refresh, std::function<void(float)> set_
     lv_obj_add_event_cb(page,page_scrolled,LV_EVENT_SCROLL_END,nullptr);
   }
   body=pages[SETTINGS];render_settings();
+  pull_bar=bar(root,16,30,448,3,0,CYAN);lv_obj_add_flag(pull_bar,LV_OBJ_FLAG_HIDDEN);
   auto* strip=lv_obj_create(root);box(strip,190,462,100,8,BG,0);plain(strip);
   lv_obj_set_layout(strip,LV_LAYOUT_FLEX);lv_obj_set_flex_flow(strip,LV_FLEX_FLOW_ROW);
   lv_obj_set_flex_align(strip,LV_FLEX_ALIGN_CENTER,LV_FLEX_ALIGN_CENTER,LV_FLEX_ALIGN_CENTER);

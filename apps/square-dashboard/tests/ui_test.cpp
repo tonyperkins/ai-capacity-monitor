@@ -114,8 +114,8 @@ int main() {
   assert(capacity_ui::accept_snapshot(doc.as<JsonObject>()));
   assert(capacity_ui::view==capacity_ui::HOME && capacity_ui::rows.size()==13);
   assert(capacity_ui::tap_ids==(std::vector<std::string>{"claude","chatgpt","gemini","grok","devin"}));
-  assert(lv_obj_get_child_count(capacity_ui::body)==5);
-  lv_obj_update_layout(capacity_ui::body);assert(lv_obj_get_scroll_bottom(capacity_ui::body)<=0);
+  assert(lv_obj_get_child_count(capacity_ui::body)==6);  // five rows and the one-pixel spacer that makes the page pullable
+  lv_obj_update_layout(capacity_ui::body);assert(lv_obj_get_scroll_bottom(capacity_ui::body)<=1);
   shot(display,"home");
   // The widest countdown and percentage fit their fixed-width, single-line labels.
   { lv_point_t size;
@@ -139,6 +139,8 @@ int main() {
     drag(80,150,400,150);assert(capacity_ui::view==capacity_ui::HOME && !capacity_ui::modal);
     assert(capacity_ui::body==capacity_ui::pages[capacity_ui::HOME] && lv_obj_get_scroll_x(capacity_ui::pager)==480);
     drag(300,150,265,151);assert(capacity_ui::view==capacity_ui::HOME);     // a short drag springs back
+    drag(300,150,230,151);assert(capacity_ui::view==capacity_ui::LIMITS);   // 70 pixels is enough to turn the page
+    drag(230,150,300,151);assert(capacity_ui::view==capacity_ui::HOME);
     assert(refreshes==before && !capacity_ui::modal);
     // The page follows the finger before it is released.
     finger.point.x=400;finger.point.y=150;finger.state=LV_INDEV_STATE_PRESSED;pump();
@@ -146,16 +148,31 @@ int main() {
     assert(lv_obj_get_scroll_x(capacity_ui::pager)>480+60);shot(display,"swiping");
     assert(!lv_obj_has_state(lv_obj_get_child(capacity_ui::body,1),LV_STATE_PRESSED));
     for(int x=300;x<=400;x+=20) { finger.point.x=x;pump(); }
-    pump(4);  // held still back where it started, then let go: the page stays
-    finger.state=LV_INDEV_STATE_RELEASED;pump(40);assert(capacity_ui::view==capacity_ui::HOME);
-    // Pull down refreshes: as a swipe where the page does not scroll, and as
-    // an overscroll at the top of a list that does.
-    drag(240,100,240,300);assert(refreshes==before+1 && capacity_ui::view==capacity_ui::HOME && !capacity_ui::modal);
-    drag(240,300,240,100);assert(refreshes==before+1 && !capacity_ui::modal);  // a swipe up does nothing, and is not a tap
+    finger.state=LV_INDEV_STATE_RELEASED;pump(40);assert(capacity_ui::view==capacity_ui::HOME);  // dragged back: stays
+    // Pull down to refresh. The page moves with the finger, the pull bar
+    // fills, and the status changes once the pull is deep enough.
+    finger.point.x=240;finger.point.y=100;finger.state=LV_INDEV_STATE_PRESSED;pump();
+    for(int y=120;y<=180;y+=20) { finger.point.y=y;pump(); }
+    assert(lv_obj_get_scroll_y(capacity_ui::body)<0 && !lv_obj_has_flag(capacity_ui::pull_bar,LV_OBJ_FLAG_HIDDEN) && !capacity_ui::pull_armed);
+    for(int y=200;y<=300;y+=20) { finger.point.y=y;pump(); }
+    assert(capacity_ui::pull_armed && std::string(lv_label_get_text(capacity_ui::status))=="Release to refresh");shot(display,"pulling");
+    finger.state=LV_INDEV_STATE_RELEASED;pump(40);
+    assert(refreshes==before+1 && !capacity_ui::pull_armed && lv_obj_has_flag(capacity_ui::pull_bar,LV_OBJ_FLAG_HIDDEN));
+    assert(lv_obj_get_scroll_y(capacity_ui::body)==0 && capacity_ui::view==capacity_ui::HOME && !capacity_ui::modal);
+    // A pull that is let go early, or dragged back up, does nothing.
+    lv_tick_inc(61000);
+    drag(240,100,240,150);assert(refreshes==before+1);
+    drag(240,300,240,100);assert(refreshes==before+1 && !capacity_ui::modal);  // a swipe up is not a tap either
+    // A second refresh within a minute is ignored, with a note in the status.
+    drag(240,100,240,300);assert(refreshes==before+2);
+    drag(240,100,240,300);assert(refreshes==before+2);
+    assert(std::string(lv_label_get_text(capacity_ui::status))=="Refreshed less than a minute ago");
+    lv_tick_inc(5000);pump(2);assert(std::string(lv_label_get_text(capacity_ui::status)).find("Connected")==0);
+    // The Limits list scrolls normally and pulls from its top.
     capacity_ui::show_view(capacity_ui::LIMITS);
-    drag(240,300,240,120);assert(refreshes==before+1 && lv_obj_get_scroll_y(capacity_ui::body)>0);  // scrolling the list
-    capacity_ui::show_view(capacity_ui::LIMITS);lv_obj_scroll_to_y(capacity_ui::body,0,LV_ANIM_OFF);
-    drag(240,80,240,400);assert(refreshes==before+2 && !capacity_ui::pull_armed);
+    drag(240,300,240,120);assert(refreshes==before+2 && lv_obj_get_scroll_y(capacity_ui::body)>0);
+    lv_obj_scroll_to_y(capacity_ui::body,0,LV_ANIM_OFF);lv_tick_inc(61000);
+    drag(240,80,240,400);assert(refreshes==before+3 && !capacity_ui::pull_armed);
     capacity_ui::show_view(capacity_ui::HOME); }
   // A tap still opens a row; a swipe right on the detail page goes back.
   drag(240,80,241,80);assert(capacity_ui::modal && capacity_ui::detail_provider=="claude");
@@ -216,7 +233,7 @@ int main() {
   }
   assert(rotation_saves==4);
   capacity_ui::apply_rotation(270,false);
-  { const int before=refreshes;lv_obj_send_event(capacity_ui::refresh_button,LV_EVENT_CLICKED,nullptr);assert(refreshes==before+1); }
+  { const int before=refreshes;lv_tick_inc(61000);lv_obj_send_event(capacity_ui::refresh_button,LV_EVENT_CLICKED,nullptr);assert(refreshes==before+1); }
   capacity_ui::set_busy(true);assert(lv_obj_has_state(capacity_ui::refresh_button,LV_STATE_DISABLED));
   capacity_ui::connection_failed();assert(!capacity_ui::online);assert(capacity_ui::snapshot.metrics.size()==13);
   capacity_ui::show_view(capacity_ui::HOME);

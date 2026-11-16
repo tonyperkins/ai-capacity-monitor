@@ -45,12 +45,14 @@ is shown. A payload is rejected only when its envelope is wrong or nothing in
 it is usable. With more than five providers the Home face scrolls.
 
 Navigation is by swipe. The three pages sit side by side in a horizontally
-scrolling pager, so a page follows the finger and snaps into place, with page
-dots at the bottom. The order is Home, Limits, Settings and it wraps: Settings
+scrolling pager, so a page follows the finger. On release, a drag of more
+than 50 pixels carries on to the next page and a shorter one springs back.
+Page dots sit at the bottom. The order is Home, Limits, Settings and it wraps: Settings
 is to the left of Home. On a detail page a swipe right goes back, as does the
-Back button. Pulling down refreshes: a downward swipe on a page that fits the
-screen, or dragging past the top of one that scrolls and letting go ("Release
-to refresh" appears in the status strip). There are no edge, double-tap or
+Back button. Pulling down refreshes on every page: the page moves with the finger, a thin
+bar under the status strip fills as the pull deepens, and the status reads
+"Release to refresh" once it is far enough. Letting go earlier does nothing.
+A second refresh within a minute is ignored, with a note in the status. There are no edge, double-tap or
 hold gestures, and touch calibration ignores swipes. A swipe never counts as
 a tap, nothing lights up when touched, and dragging the brightness slider
 does not turn the page. Buttons and rows are at least 44 pixels tall; the
@@ -63,7 +65,7 @@ orientation and restores the selected orientation when finished.
 **Refresh** (pull down, or Refresh now in Settings) asks the collector to
 read every provider now, by sending the snapshot request with an
 `X-Capacity-Refresh: 1` header, then fetches the result ten seconds later.
-The collector starts at most one extra pass every 30 seconds. Automatic display refresh is once per minute.
+The collector also starts at most one extra pass a minute. Automatic display refresh is once per minute.
 The age indicator refers to the collection timestamp, and retained readings
 are labeled as prior values. Bad responses preserve the current snapshot with
 an offline indicator. This version retains outage data in RAM, not across
