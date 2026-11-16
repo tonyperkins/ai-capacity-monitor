@@ -24,7 +24,7 @@ bridge used before it.
   exact reset times.
 - **Limits:** every reading, with ordinary vertical scrolling. Each card
   shows the remaining percentage, capacity bar, reset countdown and a compact
-  violet time-left bar. Credit balances, if a snapshot has any, follow the
+  violet bar that fills toward the reset. Credit balances, if a snapshot has any, follow the
   quotas; USD values are converted from the contract's integer cents.
 - **Settings:** brightness, a saved Rotate 90 deg clockwise control, Touch calibration, and Refresh now.
 - **Metric details:** tap a card for its source label, reading state, reading
@@ -44,21 +44,26 @@ value or a repeated key is skipped and counted, and the rest of the snapshot
 is shown. A payload is rejected only when its envelope is wrong or nothing in
 it is usable. With more than five providers the Home face scrolls.
 
-Navigation is by swipe: left for the next page, right for the previous, in
-the order Home, Limits, Settings, with page dots at the bottom. On a detail
-page a swipe right goes back, as does the Back button. There are no edge,
-double-tap or hold gestures, and touch calibration ignores swipes. Dragging
-the brightness slider does not turn the page. Buttons and rows are at least
-44 pixels tall; the issues strip is 34. Text and bars update without
-animations or full-screen clears; unchanged widgets are retained. Home is
-redrawn only when a value it shows changes, and once a minute so countdowns
-keep moving. Rotate cycles through 0, 90, 180, and 270 degrees and saves the selected
+Navigation is by swipe. The three pages sit side by side in a horizontally
+scrolling pager, so a page follows the finger and snaps into place, with page
+dots at the bottom. The order is Home, Limits, Settings and it wraps: Settings
+is to the left of Home. On a detail page a swipe right goes back, as does the
+Back button. Pulling down refreshes: a downward swipe on a page that fits the
+screen, or dragging past the top of one that scrolls and letting go ("Release
+to refresh" appears in the status strip). There are no edge, double-tap or
+hold gestures, and touch calibration ignores swipes. A swipe never counts as
+a tap, nothing lights up when touched, and dragging the brightness slider
+does not turn the page. Buttons and rows are at least 44 pixels tall; the
+issues strip is 34. Home is rebuilt only when a value it shows changes, and
+once a minute so countdowns keep moving. Rotate cycles through 0, 90, 180, and 270 degrees and saves the selected
 orientation. ESPHome rotates both the display output and calibrated touch
 coordinates together. Calibration temporarily returns to the panel's base
 orientation and restores the selected orientation when finished.
 
-**Refresh** fetches the collector's latest snapshot. It does not start a new
-reading or call a provider. Automatic display refresh is once per minute.
+**Refresh** (pull down, or Refresh now in Settings) asks the collector to
+read every provider now, by sending the snapshot request with an
+`X-Capacity-Refresh: 1` header, then fetches the result ten seconds later.
+The collector starts at most one extra pass every 30 seconds. Automatic display refresh is once per minute.
 The age indicator refers to the collection timestamp, and retained readings
 are labeled as prior values. Bad responses preserve the current snapshot with
 an offline indicator. This version retains outage data in RAM, not across

@@ -19,7 +19,8 @@ vendor CLIs / Devin API  ->  apps/collector (systemd user service, port 8788)
   Claude, ChatGPT, Gemini (Antigravity), Grok and Devin every 10 minutes. No
   browser, no extension. See its [README](../apps/collector/README.md).
 - **Display** (`apps/square-dashboard`): polls the collector once a minute.
-  Pages, by swipe: Home (one row per provider), Limits, Settings.
+  Pages, by swipe (they follow the finger and wrap around): Home (one row per
+  provider), Limits, Settings. Pull down to make the collector read now.
 - **Snapshot file**: other local tools (for example coding agents deciding
   which subscription to use) read `latest-snapshot.json`.
 
@@ -69,8 +70,9 @@ vendor CLIs / Devin API  ->  apps/collector (systemd user service, port 8788)
    `secrets.yaml` needs no change; the collector uses the bridge's port and token.
 2. Home shows time as a second bar that fills toward the reset (the owner's
    choice over a tick, a surplus segment, pace colouring, and a time-left bar).
-3. Tune swipe feel on the panel if needed (`lv_indev_set_gesture_min_distance`).
-   Possible later: pull down on Home to make the collector read right now.
+3. Tune swipe feel on the panel if needed. Page swipes are LVGL scrolling of
+   `capacity_ui::pager`; pull-down thresholds are in `page_scrolled` and
+   `gesture`.
 4. Optional faces, designed but not built: **Pace** (where each week lands
    at the current rate) and **Refill timeline**. The Home face already
    carries the pace idea as the tick on each bar. Mockups:

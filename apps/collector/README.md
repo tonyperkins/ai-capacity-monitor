@@ -45,7 +45,10 @@ The service writes and serves the `snapshot.v1` shape in `packages/contract`,
 so the existing display firmware reads it unchanged. Each metric also carries
 optional `providerId`, `group` and `parent` fields.
 
-- `GET /snapshot/v1` with `Authorization: Bearer <display token>`
+- `GET /snapshot/v1` with `Authorization: Bearer <display token>`. Adding the
+  header `X-Capacity-Refresh: 1` also starts a new reading (at most one extra
+  pass every 30 seconds); the reply is still the current snapshot, and the
+  new one is ready a few seconds later.
 - `GET /health` (no values, only per-source state)
 
 ## Run

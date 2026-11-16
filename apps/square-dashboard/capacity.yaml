@@ -22,7 +22,7 @@ esphome:
     then:
       - lambda: |-
           capacity_ui::begin(
-            [] { id(fetch_snapshot).execute(); },
+            [] { id(refresh_now).execute(); },
             [](float value) {
               auto call = id(backlight).turn_on();
               call.set_brightness(value);
@@ -182,6 +182,29 @@ script:
       - lambda: |-
           if (esphome::global_preferences->sync()) ESP_LOGI("touchcal", "Calibration saved and verified");
           else ESP_LOGW("touchcal", "Calibration save failed");
+  # Pull down or "Refresh now": ask the collector to read every provider, then
+  # fetch the result once it has had time to finish.
+  - id: refresh_now
+    mode: single
+    then:
+      - if:
+          condition:
+            wifi.connected:
+          then:
+            - lambda: capacity_ui::set_busy(true, "Reading providers...");
+            - delay: 75ms
+            - http_request.get:
+                url: !secret snapshot_url
+                request_headers:
+                  Authorization: !secret display_authorization
+                  X-Capacity-Refresh: "1"
+                on_error:
+                  then:
+                    - lambda: capacity_ui::connection_failed();
+            - delay: 10s
+            - script.execute: fetch_snapshot
+          else:
+            - lambda: capacity_ui::connection_failed();
   - id: fetch_snapshot
     mode: single
     then:

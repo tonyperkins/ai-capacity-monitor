@@ -15,7 +15,7 @@ static void read_finger(lv_indev_t*,lv_indev_data_t* data) { *data=finger; }
 static void pump(int cycles=1) { for(int i=0;i<cycles;++i) { lv_tick_inc(40);lv_timer_handler(); } }
 static void drag(int x0,int y0,int x1,int y1) {
   for(int i=0;i<=8;++i) { finger.point.x=x0+(x1-x0)*i/8;finger.point.y=y0+(y1-y0)*i/8;finger.state=LV_INDEV_STATE_PRESSED;pump(); }
-  finger.state=LV_INDEV_STATE_RELEASED;pump(3);
+  finger.state=LV_INDEV_STATE_RELEASED;pump(40);
 }
 static void shot(lv_display_t* display,const char* name) {
   lv_obj_update_layout(lv_screen_active());lv_tick_inc(20);lv_timer_handler();lv_refr_now(display);
@@ -112,7 +112,7 @@ int main() {
   shot(display,"connecting");
   // Home: one row per provider, all visible without scrolling.
   assert(capacity_ui::accept_snapshot(doc.as<JsonObject>()));
-  assert(capacity_ui::view==capacity_ui::HOME && capacity_ui::rows.empty());
+  assert(capacity_ui::view==capacity_ui::HOME && capacity_ui::rows.size()==13);
   assert(capacity_ui::tap_ids==(std::vector<std::string>{"claude","chatgpt","gemini","grok","devin"}));
   assert(lv_obj_get_child_count(capacity_ui::body)==5);
   lv_obj_update_layout(capacity_ui::body);assert(lv_obj_get_scroll_bottom(capacity_ui::body)<=0);
@@ -126,16 +126,37 @@ int main() {
   { auto* claude=lv_obj_get_child(capacity_ui::body,0); std::vector<int> bars;
     for(uint32_t i=0;i<lv_obj_get_child_count(claude);++i) { auto* child=lv_obj_get_child(claude,i); if(lv_obj_check_type(child,&lv_bar_class)) bars.push_back(lv_bar_get_value(child)); }
     assert(bars.size()==4 && bars[0]==36 && bars[1]==40 && bars[2]==84); }
-  // Swipes turn the page, stop at either end, and never click what they start on.
-  drag(400,150,80,155);assert(capacity_ui::view==capacity_ui::LIMITS && !capacity_ui::modal);
-  drag(400,150,80,155);assert(capacity_ui::view==capacity_ui::SETTINGS);
-  drag(400,300,80,300);assert(capacity_ui::view==capacity_ui::SETTINGS);
-  { int before=capacity_ui::brightness; drag(60,162,380,162);  // dragging the slider is not a page swipe
-    assert(capacity_ui::view==capacity_ui::SETTINGS && capacity_ui::brightness!=before); }
-  drag(80,300,400,300);assert(capacity_ui::view==capacity_ui::LIMITS);
-  drag(80,150,400,150);assert(capacity_ui::view==capacity_ui::HOME && !capacity_ui::modal);
-  drag(80,150,400,150);assert(capacity_ui::view==capacity_ui::HOME);
-  drag(240,100,240,300);assert(capacity_ui::view==capacity_ui::HOME && !capacity_ui::modal);  // vertical: nothing
+  // Swipes scroll the pager, which wraps: Settings is to the left of Home.
+  // A swipe never clicks what it starts on, and never lights it up.
+  { const int before=refreshes;
+    drag(400,150,80,155);assert(capacity_ui::view==capacity_ui::LIMITS && !capacity_ui::modal);
+    drag(400,150,80,155);assert(capacity_ui::view==capacity_ui::SETTINGS);
+    { int level=capacity_ui::brightness; drag(60,162,380,162);  // dragging the slider is not a page swipe
+      assert(capacity_ui::view==capacity_ui::SETTINGS && capacity_ui::brightness!=level); }
+    drag(400,320,80,320);assert(capacity_ui::view==capacity_ui::HOME);      // wraps forward, starting on a button
+    drag(80,150,400,150);assert(capacity_ui::view==capacity_ui::SETTINGS);  // wraps back
+    drag(80,320,400,320);assert(capacity_ui::view==capacity_ui::LIMITS);
+    drag(80,150,400,150);assert(capacity_ui::view==capacity_ui::HOME && !capacity_ui::modal);
+    assert(capacity_ui::body==capacity_ui::pages[capacity_ui::HOME] && lv_obj_get_scroll_x(capacity_ui::pager)==480);
+    drag(300,150,265,151);assert(capacity_ui::view==capacity_ui::HOME);     // a short drag springs back
+    assert(refreshes==before && !capacity_ui::modal);
+    // The page follows the finger before it is released.
+    finger.point.x=400;finger.point.y=150;finger.state=LV_INDEV_STATE_PRESSED;pump();
+    for(int x=380;x>=280;x-=20) { finger.point.x=x;pump(); }
+    assert(lv_obj_get_scroll_x(capacity_ui::pager)>480+60);shot(display,"swiping");
+    assert(!lv_obj_has_state(lv_obj_get_child(capacity_ui::body,1),LV_STATE_PRESSED));
+    for(int x=300;x<=400;x+=20) { finger.point.x=x;pump(); }
+    pump(4);  // held still back where it started, then let go: the page stays
+    finger.state=LV_INDEV_STATE_RELEASED;pump(40);assert(capacity_ui::view==capacity_ui::HOME);
+    // Pull down refreshes: as a swipe where the page does not scroll, and as
+    // an overscroll at the top of a list that does.
+    drag(240,100,240,300);assert(refreshes==before+1 && capacity_ui::view==capacity_ui::HOME && !capacity_ui::modal);
+    drag(240,300,240,100);assert(refreshes==before+1 && !capacity_ui::modal);  // a swipe up does nothing, and is not a tap
+    capacity_ui::show_view(capacity_ui::LIMITS);
+    drag(240,300,240,120);assert(refreshes==before+1 && lv_obj_get_scroll_y(capacity_ui::body)>0);  // scrolling the list
+    capacity_ui::show_view(capacity_ui::LIMITS);lv_obj_scroll_to_y(capacity_ui::body,0,LV_ANIM_OFF);
+    drag(240,80,240,400);assert(refreshes==before+2 && !capacity_ui::pull_armed);
+    capacity_ui::show_view(capacity_ui::HOME); }
   // A tap still opens a row; a swipe right on the detail page goes back.
   drag(240,80,241,80);assert(capacity_ui::modal && capacity_ui::detail_provider=="claude");
   drag(80,240,400,240);assert(!capacity_ui::modal && capacity_ui::view==capacity_ui::HOME);
@@ -195,7 +216,7 @@ int main() {
   }
   assert(rotation_saves==4);
   capacity_ui::apply_rotation(270,false);
-  lv_obj_send_event(capacity_ui::refresh_button,LV_EVENT_CLICKED,nullptr);assert(refreshes==1);
+  { const int before=refreshes;lv_obj_send_event(capacity_ui::refresh_button,LV_EVENT_CLICKED,nullptr);assert(refreshes==before+1); }
   capacity_ui::set_busy(true);assert(lv_obj_has_state(capacity_ui::refresh_button,LV_STATE_DISABLED));
   capacity_ui::connection_failed();assert(!capacity_ui::online);assert(capacity_ui::snapshot.metrics.size()==13);
   capacity_ui::show_view(capacity_ui::HOME);

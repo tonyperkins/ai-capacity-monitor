@@ -10,9 +10,10 @@ using capacity_model::Snapshot;
 constexpr uint32_t BG = 0x0b1019, PANEL = 0x151f2d, BORDER = 0x29384b;
 constexpr uint32_t TEXT = 0xecf2fa, MUTED = 0x91a4bd, CYAN = 0x59dbef, AMBER = 0xf5c476, RED = 0xff7f88;
 constexpr uint32_t VIOLET = 0xb7a3ff, TRACK = 0x1b2838;
-// Pages, in swipe order: swipe left for the next, right for the previous.
-// Home has one row per provider; Limits lists every reading; Settings holds
-// the display controls and Refresh.
+// Pages, in swipe order. They sit side by side in a horizontally scrolling
+// pager, so a page follows the finger and snaps into place. The order wraps:
+// Settings is to the left of Home. Home has one row per provider; Limits
+// lists every reading; Settings holds the display controls.
 enum View { HOME = 0, LIMITS = 1, SETTINGS = 2 };
 inline Snapshot snapshot;
 inline bool have_data = false, online = false, busy = false;
@@ -23,6 +24,11 @@ inline std::function<void(int,bool)> rotation_action;
 inline lv_obj_t* rotation_label = nullptr;
 inline lv_obj_t *body = nullptr, *status = nullptr, *refresh_button = nullptr, *modal = nullptr, *brightness_label = nullptr, *issues_button = nullptr;
 inline lv_obj_t* dots[3] = {};
+// All three pages always exist. `body` is the page being built or, between
+// renders, the page on screen.
+inline lv_obj_t *pager = nullptr, *pages[3] = {};
+inline bool pull_armed = false, settling = false;
+inline std::string limits_key, busy_text;
 inline std::string layout_key, detail_key, detail_provider;
 struct Row { std::string key; lv_obj_t *name, *value, *note, *reset, *bar, *time_bar; };
 inline std::vector<Row> rows;
@@ -70,7 +76,7 @@ inline lv_obj_t* button(lv_obj_t* parent, const char* text, int x, int y, int w,
   auto* o = lv_button_create(parent); box(o, x, y, w, h);
   auto* l = label(o, text, 0, 0, w, &lv_font_montserrat_16);
   lv_obj_set_style_text_align(l, LV_TEXT_ALIGN_CENTER, 0); lv_obj_align(l, LV_ALIGN_CENTER, 0, 0);
-  lv_obj_set_style_bg_color(o, color(BORDER), LV_STATE_PRESSED);
+  // No pressed highlight: a touch that begins a swipe must not light up.
   lv_obj_add_event_cb(o, callback, LV_EVENT_CLICKED, data);
   return o;
 }
@@ -103,7 +109,7 @@ inline void show_detail(const Metric& m) {
   const int time_left = capacity_model::reset_percent(m,now);
   const auto deadline=capacity_model::reset_deadline(m);
   label(modal,deadline.empty()?"Exact reset time not provided":deadline,16,319,448,&lv_font_montserrat_14,MUTED);
-  if (time_left >= 0) { label(modal,"Time until reset",16,349,448,&lv_font_montserrat_14,MUTED); bar(modal,16,373,448,8,time_left,VIOLET); }
+  if (time_left >= 0) { label(modal,"Time elapsed in this window",16,349,448,&lv_font_montserrat_14,MUTED); bar(modal,16,373,448,8,100-time_left,VIOLET); }
   std::string age = m.collected && now > m.collected ? "Reading collected " + capacity_model::duration(now-m.collected) + " ago" : "Waiting for the clock to sync";
   label(modal,age,16,398,448,&lv_font_montserrat_14,MUTED);
   const Metric* parent = m.parent.empty() ? nullptr : find(m.parent);
@@ -148,7 +154,6 @@ inline void tap_clicked(lv_event_t* e) {
 inline lv_obj_t* tap_area(lv_obj_t* parent,int x,int y,int w,int h,const std::string& id) {
   auto* o=lv_obj_create(parent); box(o,x,y,w,h);
   lv_obj_add_flag(o,LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_set_style_bg_color(o,color(BORDER),LV_STATE_PRESSED);
   lv_obj_add_event_cb(o,tap_clicked,LV_EVENT_CLICKED,reinterpret_cast<void*>(uintptr_t(tap_ids.size())));
   tap_ids.push_back(id);
   return o;
@@ -173,9 +178,23 @@ inline void show_issues(lv_event_t*) {
   }
 }
 inline void refresh_clicked(lv_event_t*) { if (!busy && refresh_action) refresh_action(); }
+// Puts the current page in the middle slot of the pager with its neighbours
+// on either side, so there is always a page to swipe to in both directions.
+inline void place_pages() {
+  settling=true;
+  for (int i=0;i<3;++i) {
+    lv_obj_set_x(pages[i],((i-view+4)%3)*480);
+    lv_obj_set_style_bg_color(dots[i],color(i==view?CYAN:BORDER),0);
+    lv_obj_set_width(dots[i],i==view?20:8);
+  }
+  lv_obj_update_layout(pager);
+  lv_obj_scroll_to_x(pager,480,LV_ANIM_OFF);
+  body=pages[view];
+  settling=false;
+}
 inline void show_view(int next) {
   view = std::max(int(HOME),std::min(int(SETTINGS),next));
-  layout_key.clear(); render();
+  place_pages(); render();
 }
 inline void slider_changed(lv_event_t* e) {
   brightness = lv_slider_get_value(static_cast<lv_obj_t*>(lv_event_get_target(e)));
@@ -284,14 +303,14 @@ inline void render_settings() {
   lv_obj_set_style_bg_color(slider,color(CYAN),LV_PART_INDICATOR); lv_obj_set_style_bg_color(slider,color(CYAN),LV_PART_KNOB);
   lv_obj_add_event_cb(slider,slider_changed,LV_EVENT_VALUE_CHANGED,nullptr);
   // Dragging the slider sideways must not turn the page.
-  lv_obj_remove_flag(slider,LV_OBJ_FLAG_GESTURE_BUBBLE);
+  lv_obj_remove_flag(slider,LV_OBJ_FLAG_GESTURE_BUBBLE); lv_obj_remove_flag(slider,LV_OBJ_FLAG_SCROLL_CHAIN);
   label(body,"Orientation",0,158,300,&lv_font_montserrat_20);
   rotation_label=label(body,std::to_string(rotation_degrees)+" deg",328,158,116,&lv_font_montserrat_20,CYAN);
   button(body,"Rotate 90 deg clockwise",0,192,448,48,rotate_clicked);
   button(body,"Calibrate touch",0,258,448,48,start_calibration);
   refresh_button=button(body,"Refresh now",0,324,448,48,refresh_clicked);
   if (busy) lv_obj_add_state(refresh_button,LV_STATE_DISABLED);
-  auto* help=label(body,"Refresh fetches the collector's latest snapshot. It does not start a new reading.",0,384,448,&lv_font_montserrat_14,MUTED);
+  auto* help=label(body,"Refresh asks the collector to read every provider now. Pulling down on any page does the same.",0,384,448,&lv_font_montserrat_14,MUTED);
   lv_label_set_long_mode(help,LV_LABEL_LONG_WRAP);
   help=label(body,"Orientation is saved. Touch calibration stays aligned when you rotate.",0,432,448,&lv_font_montserrat_14,MUTED);
   lv_label_set_long_mode(help,LV_LABEL_LONG_WRAP);
@@ -314,7 +333,7 @@ inline void update_rows() {
     if(row.time_bar) {
       const int percent=capacity_model::reset_percent(*m,now);
       if(percent<0)lv_obj_add_flag(row.time_bar,LV_OBJ_FLAG_HIDDEN);
-      else {lv_obj_remove_flag(row.time_bar,LV_OBJ_FLAG_HIDDEN);lv_bar_set_value(row.time_bar,percent,LV_ANIM_OFF);}
+      else {lv_obj_remove_flag(row.time_bar,LV_OBJ_FLAG_HIDDEN);lv_bar_set_value(row.time_bar,100-percent,LV_ANIM_OFF);}
     }
     if (row.bar) {
       lv_bar_set_value(row.bar,m->unlimited?100:int(m->value),LV_ANIM_OFF);
@@ -367,55 +386,50 @@ inline void message(const std::string& title,const std::string& detail) {
 }
 inline void render() {
   const auto now = ::time(nullptr);
-  std::vector<const Metric*> selected;
-  std::string key = std::to_string(view)+":"+std::to_string(have_data);
-  if (view == LIMITS) {
-    // Rows are created once per set of keys and then updated in place.
-    selected = capacity_model::select(snapshot,"quota");
-    for (const auto* m : capacity_model::select(snapshot,"credit")) selected.push_back(m);
-    for (const auto* m : selected) key += ":"+m->key;
-  } else if (view == HOME) {
-    // Redrawn only when something it shows has changed, or once a minute so
-    // the countdowns and time ticks keep moving.
-    for (const auto& m : snapshot.metrics) key += ":"+m.key+"="+std::to_string(int(m.value))+m.state+std::to_string((long long)m.reset);
-    key += ":"+std::to_string((long long)(now/60));
-  }
+  // Home is rebuilt only when something it shows has changed, or once a
+  // minute so the countdowns and time bars keep moving.
+  std::string key = std::to_string(have_data);
+  for (const auto& m : snapshot.metrics) key += ":"+m.key+"="+std::to_string(int(m.value))+m.state+std::to_string((long long)m.reset);
+  key += ":"+std::to_string((long long)(now/60));
   if (layout_key != key) {
-    layout_key = key; rows.clear(); tap_ids.clear(); brightness_label = nullptr; rotation_label=nullptr; refresh_button=nullptr;
+    layout_key = key; tap_ids.clear(); body=pages[HOME];
     lv_obj_clean(body); lv_obj_scroll_to_y(body,0,LV_ANIM_OFF);
-    if (view == SETTINGS) render_settings();
-    else if (!have_data) message("Connecting to your data","Waiting for the collector's snapshot.");
-    else if (view == LIMITS) {
-      if (selected.empty()) message("No limits to show","The collector has not reported any limits yet.");
-      else label(body,"All limits",0,0,448,&lv_font_montserrat_20,MUTED);
-      for (size_t i=0;i<selected.size();++i) {
-        const bool quota = selected[i]->kind == "quota";
-        auto* card=lv_obj_create(body); box(card,0,34+int(i)*98,448,90);
-        lv_obj_add_flag(card,LV_OBJ_FLAG_CLICKABLE);
-        lv_obj_add_event_cb(card,row_clicked,LV_EVENT_CLICKED,reinterpret_cast<void*>(i));
-        Row row; row.key=selected[i]->key;
-        row.name=label(card,"",12,10,424,&lv_font_montserrat_18);
-        row.value=label(card,"",316,29,120,&lv_font_montserrat_24,CYAN);
-        lv_obj_set_style_text_align(row.value,LV_TEXT_ALIGN_RIGHT,0);
-        row.note=label(card,"",12,34,288,&lv_font_montserrat_14,MUTED);
-        row.bar=quota?bar(card,12,58,424,5,0,CYAN):nullptr;
-        row.reset=label(card,"",12,69,316,&lv_font_montserrat_14,MUTED);
-        row.time_bar=quota?bar(card,348,76,88,4,0,VIOLET):nullptr;
-        // Fixed line heights make ellipsis effective instead of allowing labels to wrap.
-        for(auto* text : {row.name,row.value,row.note,row.reset})
-          lv_obj_set_height(text,lv_obj_get_style_text_font(text,LV_PART_MAIN)->line_height);
-        rows.push_back(row);
-      }
-    } else {
-      const auto list = capacity_model::providers(snapshot);
-      if (list.empty()) message("No limits to show","The collector has not reported any limits yet.");
-      else render_home(list,now);
-    }
-    for (int i=0;i<3;++i) {
-      lv_obj_set_style_bg_color(dots[i],color(i==view?CYAN:BORDER),0);
-      lv_obj_set_width(dots[i],i==view?20:8);
+    const auto list = capacity_model::providers(snapshot);
+    if (!have_data) message("Connecting to your data","Waiting for the collector's snapshot.");
+    else if (list.empty()) message("No limits to show","The collector has not reported any limits yet.");
+    else render_home(list,now);
+  }
+  // Limits rows are created once per set of keys and then updated in place.
+  auto selected = capacity_model::select(snapshot,"quota");
+  for (const auto* m : capacity_model::select(snapshot,"credit")) selected.push_back(m);
+  key = std::to_string(have_data);
+  for (const auto* m : selected) key += ":"+m->key;
+  if (limits_key != key) {
+    limits_key = key; rows.clear(); body=pages[LIMITS];
+    lv_obj_clean(body); lv_obj_scroll_to_y(body,0,LV_ANIM_OFF);
+    if (!have_data) message("Connecting to your data","Waiting for the collector's snapshot.");
+    else if (selected.empty()) message("No limits to show","The collector has not reported any limits yet.");
+    else label(body,"All limits",0,0,448,&lv_font_montserrat_20,MUTED);
+    for (size_t i=0;i<selected.size();++i) {
+      const bool quota = selected[i]->kind == "quota";
+      auto* card=lv_obj_create(body); box(card,0,34+int(i)*98,448,90);
+      lv_obj_add_flag(card,LV_OBJ_FLAG_CLICKABLE);
+      lv_obj_add_event_cb(card,row_clicked,LV_EVENT_CLICKED,reinterpret_cast<void*>(i));
+      Row row; row.key=selected[i]->key;
+      row.name=label(card,"",12,10,424,&lv_font_montserrat_18);
+      row.value=label(card,"",316,29,120,&lv_font_montserrat_24,CYAN);
+      lv_obj_set_style_text_align(row.value,LV_TEXT_ALIGN_RIGHT,0);
+      row.note=label(card,"",12,34,288,&lv_font_montserrat_14,MUTED);
+      row.bar=quota?bar(card,12,58,424,5,0,CYAN):nullptr;
+      row.reset=label(card,"",12,69,316,&lv_font_montserrat_14,MUTED);
+      row.time_bar=quota?bar(card,348,76,88,4,0,VIOLET):nullptr;
+      // Fixed line heights make ellipsis effective instead of allowing labels to wrap.
+      for(auto* text : {row.name,row.value,row.note,row.reset})
+        lv_obj_set_height(text,lv_obj_get_style_text_font(text,LV_PART_MAIN)->line_height);
+      rows.push_back(row);
     }
   }
+  body=pages[view];
   update_rows(); update_status();
 }
 // Called on a timer: refreshes countdowns and redraws a face that has gone stale.
@@ -425,7 +439,8 @@ inline void update_status() {
   const auto now = ::time(nullptr);
   std::string text;
   uint32_t shade = MUTED;
-  if (busy) text="Checking the collector...";
+  if (pull_armed) { text="Release to refresh"; shade=CYAN; }
+  else if (busy) text=busy_text.empty()?"Checking the collector...":busy_text;
   else if (!have_data) text=online?"Connected / waiting for readings":"Waiting for the collector";
   else {
     const auto age = now > snapshot.collected ? now-snapshot.collected : 0;
@@ -434,6 +449,7 @@ inline void update_status() {
     else text += " / clock syncing";
     shade=(!online || age>2400)?AMBER:MUTED;
   }
+  if (pull_armed) shade=CYAN;
   set_text(status,text);lv_obj_set_style_text_color(status,color(shade),0);
   if (issues_button) {
     if (snapshot.issue_count) {
@@ -441,10 +457,11 @@ inline void update_status() {
       set_text(lv_obj_get_child(issues_button,0),std::to_string(snapshot.issue_count)+(snapshot.issue_count==1?" issue":" issues"));
     } else lv_obj_add_flag(issues_button,LV_OBJ_FLAG_HIDDEN);
   }
-  if (view==LIMITS) update_rows();
+  update_rows();
 }
-inline void set_busy(bool value) {
-  busy=value;
+// `text` replaces the usual "Checking the collector..." while busy.
+inline void set_busy(bool value, const char* text = "") {
+  busy=value; busy_text=text;
   if (refresh_button) { if (value) lv_obj_add_state(refresh_button,LV_STATE_DISABLED); else lv_obj_remove_state(refresh_button,LV_STATE_DISABLED); }
   update_status();
 }
@@ -467,20 +484,37 @@ inline void set_brightness_level(float value) {
   brightness=std::max(10,std::min(100,int(std::lround(value*100))));
   if (brightness_label) set_text(brightness_label,std::to_string(brightness)+"%");
 }
-// Swipe left/right turns the page. On a detail page a swipe right goes back.
-// Touch calibration ignores swipes.
-inline void swipe(lv_dir_t dir) {
-  if (modal) { if (dir==LV_DIR_RIGHT && calibration_stage==-1) close_detail(nullptr); return; }
-  if (dir==LV_DIR_LEFT && view<SETTINGS) show_view(view+1);
-  else if (dir==LV_DIR_RIGHT && view>HOME) show_view(view-1);
+// A page swipe is a scroll of the pager, which LVGL animates. When it comes
+// to rest on a neighbour, that page becomes the current one.
+inline void pager_settled(lv_event_t*) {
+  if (settling) return;
+  const int x=lv_obj_get_scroll_x(pager);
+  if (x!=0 && x!=960) return;
+  view=(view+(x?1:2))%3;
+  place_pages();
 }
+inline void request_refresh() { if (!busy && refresh_action) refresh_action(); }
+// Pull down to refresh, on a page whose content scrolls: drag past the top
+// far enough, then let go.
+inline void page_scrolled(lv_event_t* e) {
+  auto* page=static_cast<lv_obj_t*>(lv_event_get_target(e));
+  if (lv_event_get_code(e)==LV_EVENT_SCROLL) {
+    // Only a finger arms it; the spring back to the top must not.
+    if (!pull_armed && lv_indev_active() && lv_obj_get_scroll_y(page)<=-44) { pull_armed=true; update_status(); }
+  } else if (pull_armed) { pull_armed=false; update_status(); request_refresh(); }
+}
+// Swipes that are not scrolls. On a detail page a swipe right goes back
+// (touch calibration ignores it). On a page whose content does not scroll, a
+// swipe down refreshes.
 inline void gesture(lv_event_t*) {
   auto* indev=lv_indev_active(); if (!indev) return;
   const auto dir=lv_indev_get_gesture_dir(indev);
-  if (dir!=LV_DIR_LEFT && dir!=LV_DIR_RIGHT) return;
-  // The finger is still down: do not let its release click whatever is drawn next.
+  if (calibration_stage!=-1) return;
+  // A swipe is never a tap: whatever it does, its release must not click
+  // the row it started on or whatever is drawn next.
   lv_indev_wait_release(indev);
-  swipe(dir);
+  if (modal) { if (dir==LV_DIR_RIGHT) close_detail(nullptr); }
+  else if (dir==LV_DIR_BOTTOM) request_refresh();
 }
 inline void begin(std::function<void()> refresh, std::function<void(float)> set_brightness) {
   refresh_action=std::move(refresh);brightness_action=std::move(set_brightness);
@@ -495,9 +529,20 @@ inline void begin(std::function<void()> refresh, std::function<void(float)> set_
   auto* count=label(issues_button,"",330,9,134,&lv_font_montserrat_14,AMBER);
   lv_obj_set_style_text_align(count,LV_TEXT_ALIGN_RIGHT,0);
   lv_obj_add_flag(issues_button,LV_OBJ_FLAG_HIDDEN);
-  body=lv_obj_create(root);box(body,16,34,448,418,BG,0);lv_obj_set_style_border_width(body,0,0);
-  lv_obj_add_flag(body,LV_OBJ_FLAG_SCROLLABLE);lv_obj_set_scroll_dir(body,LV_DIR_VER);
-  lv_obj_set_scrollbar_mode(body,LV_SCROLLBAR_MODE_AUTO);
+  pager=lv_obj_create(root);box(pager,0,34,480,418,BG,0);lv_obj_set_style_border_width(pager,0,0);
+  lv_obj_add_flag(pager,LV_OBJ_FLAG_SCROLLABLE);lv_obj_add_flag(pager,LV_OBJ_FLAG_SCROLL_ONE);
+  lv_obj_set_scroll_dir(pager,LV_DIR_HOR);lv_obj_set_scroll_snap_x(pager,LV_SCROLL_SNAP_START);
+  lv_obj_set_scrollbar_mode(pager,LV_SCROLLBAR_MODE_OFF);
+  lv_obj_add_event_cb(pager,pager_settled,LV_EVENT_SCROLL_END,nullptr);
+  for (int i=0;i<3;++i) {
+    auto* page=pages[i]=lv_obj_create(pager);box(page,480*i,0,480,418,BG,0);lv_obj_set_style_border_width(page,0,0);
+    lv_obj_set_style_pad_left(page,16,0);lv_obj_set_style_pad_right(page,16,0);
+    lv_obj_add_flag(page,LV_OBJ_FLAG_SCROLLABLE);lv_obj_set_scroll_dir(page,LV_DIR_VER);
+    lv_obj_set_scrollbar_mode(page,LV_SCROLLBAR_MODE_AUTO);
+    lv_obj_add_event_cb(page,page_scrolled,LV_EVENT_SCROLL,nullptr);
+    lv_obj_add_event_cb(page,page_scrolled,LV_EVENT_SCROLL_END,nullptr);
+  }
+  body=pages[SETTINGS];render_settings();
   auto* strip=lv_obj_create(root);box(strip,190,462,100,8,BG,0);plain(strip);
   lv_obj_set_layout(strip,LV_LAYOUT_FLEX);lv_obj_set_flex_flow(strip,LV_FLEX_FLOW_ROW);
   lv_obj_set_flex_align(strip,LV_FLEX_ALIGN_CENTER,LV_FLEX_ALIGN_CENTER,LV_FLEX_ALIGN_CENTER);
@@ -508,6 +553,7 @@ inline void begin(std::function<void()> refresh, std::function<void(float)> set_
     lv_obj_remove_flag(target,LV_OBJ_FLAG_GESTURE_BUBBLE);
     lv_obj_add_event_cb(target,gesture,LV_EVENT_GESTURE,nullptr);
   }
+  place_pages();
   render();
 }
 }
