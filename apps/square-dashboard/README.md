@@ -13,11 +13,10 @@ bridge used before it.
   has two fixed columns: the short window (session, 5-hour or daily) and the
   long one (weekly). A cell shows percent remaining in large type, the window
   (`5h`, `day`, `7d`), the reset countdown, and a capacity bar with a thin
-  violet bar under it for the time left in that window, on the same scale.
-  Capacity longer than time means there is capacity to spare; shorter means
-  it is being used faster than the clock. (`capacity_ui::time_style` still
-  holds three alternatives while the owner chooses: a tick on the bar, a
-  green/red surplus segment, and a bar coloured by pace.) A provider with no short window (Grok) leaves that cell
+  violet bar under it that fills as the window runs toward its reset: empty
+  just after a reset, full when the next one is due. The capacity bar shrinks
+  as quota is used while the time bar grows, so capacity that is still long
+  when the time bar is nearly full is about to expire unused. A provider with no short window (Grok) leaves that cell
   empty. Scoped limits, such as Claude's Fable cap or Antigravity's Argon
   group, appear as a small line under the provider name. Percentages turn
   amber at or under 25% and red at or under 10%; a prior value is grey and

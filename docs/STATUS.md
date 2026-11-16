@@ -67,9 +67,8 @@ vendor CLIs / Devin API  ->  apps/collector (systemd user service, port 8788)
    uvx --from esphome==2026.10.2 esphome upload apps/square-dashboard/capacity.yaml --device /dev/ttyUSB0
    ```
    `secrets.yaml` needs no change; the collector uses the bridge's port and token.
-2. Pick how Home shows time left. `capacity_ui::time_style` is 1 (a second
-   bar); 0 (tick), 2 (surplus segment) and 3 (pace colour) are still in the
-   code. Delete the unused styles once chosen.
+2. Home shows time as a second bar that fills toward the reset (the owner's
+   choice over a tick, a surplus segment, pace colouring, and a time-left bar).
 3. Tune swipe feel on the panel if needed (`lv_indev_set_gesture_min_distance`).
    Possible later: pull down on Home to make the collector read right now.
 4. Optional faces, designed but not built: **Pace** (where each week lands

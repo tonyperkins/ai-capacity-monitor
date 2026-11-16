@@ -23,10 +23,6 @@ inline std::function<void(int,bool)> rotation_action;
 inline lv_obj_t* rotation_label = nullptr;
 inline lv_obj_t *body = nullptr, *status = nullptr, *refresh_button = nullptr, *modal = nullptr, *brightness_label = nullptr, *issues_button = nullptr;
 inline lv_obj_t* dots[3] = {};
-// How the Home face shows time left in a window. Kept switchable while the
-// owner chooses: 0 tick on the bar, 1 second bar, 2 surplus/shortfall segment,
-// 3 bar coloured by pace.
-inline int time_style = 1;
 inline std::string layout_key, detail_key, detail_provider;
 struct Row { std::string key; lv_obj_t *name, *value, *note, *reset, *bar, *time_bar; };
 inline std::vector<Row> rows;
@@ -328,14 +324,12 @@ inline void update_rows() {
 }
 // Home: one row per provider with two fixed columns, the short window
 // (session, 5-hour or daily) and the long one (weekly). Each cell shows percent
-// remaining, the window and its reset countdown, and a bar. The violet tick on
-// the bar is the time left in the window on the same scale: a bar that reaches
-// past its tick has capacity to spare, one that stops short is running ahead
-// of the clock. A provider with no short window leaves that cell empty.
+// remaining, the window and its reset countdown, a capacity bar, and a thin
+// violet bar that fills as the window runs toward its reset. A provider with
+// no short window leaves that cell empty.
 inline void plain(lv_obj_t* o) { lv_obj_set_style_border_width(o,0,0); lv_obj_remove_flag(o,LV_OBJ_FLAG_CLICKABLE); }
 inline void home_cell(lv_obj_t* card,int x,const Metric& m,time_t now) {
   constexpr int W=164, SIDE=66;  // SIDE fits the widest countdown, "23h 59m"
-  constexpr uint32_t SPARE=0x6fe3a5, SHORT=0x7a3a44;
   label(card,m.display,x,5,W-SIDE,&lv_font_montserrat_32,ink(m));
   auto* window=label(card,m.attention()?"prior":capacity_model::window_name(m.window_ms),x+W-SIDE,8,SIDE,&lv_font_montserrat_14,m.attention()?AMBER:MUTED);
   const bool timed=m.reset && now>1700000000;
@@ -346,22 +340,11 @@ inline void home_cell(lv_obj_t* card,int x,const Metric& m,time_t now) {
     lv_obj_set_height(text,lv_font_montserrat_14.line_height);
     lv_obj_set_style_text_align(text,LV_TEXT_ALIGN_RIGHT,0);
   }
-  const int have=int(m.value), left=capacity_model::reset_percent(m,now);
-  uint32_t shade=level(m);
-  if (time_style==3 && left>=0 && shade==CYAN && have<left) shade=AMBER;
-  bar(card,x,49,W,8,have,shade);
-  if (left<0 || m.attention()) return;
-  if (time_style==0) {
-    auto* tick=lv_obj_create(card); box(tick,x+std::min(W-3,W*left/100),45,3,16,VIOLET,1); plain(tick);
-  } else if (time_style==1) {
-    // Time left in the window, on the same scale as the capacity bar above it.
-    bar(card,x,61,W,4,left,VIOLET);
-  } else if (time_style==2 && have!=left) {
-    // The stretch between time left and capacity left: green when capacity
-    // is ahead of the clock, dull red when it is behind.
-    const int from=W*std::min(have,left)/100, to=W*std::max(have,left)/100;
-    auto* part=lv_obj_create(card); box(part,x+from,49,std::max(2,to-from),8,have>left?SPARE:SHORT,have>left?4:0); plain(part);
-  }
+  bar(card,x,49,W,8,int(m.value),level(m));
+  // Under it, how far through the window we are: empty just after a reset,
+  // full when the next reset is due.
+  const int left=capacity_model::reset_percent(m,now);
+  if (left>=0 && !m.attention()) bar(card,x,61,W,4,100-left,VIOLET);
 }
 inline void render_home(const std::vector<capacity_model::Provider>& list, time_t now) {
   const int pitch=std::max(83,std::min(110,418/int(list.size())));
