@@ -48,8 +48,8 @@ vendor CLIs / Devin API  ->  apps/collector (systemd user service, port 8788)
 | Collector serves `/snapshot/v1` with the display token | Verified with curl |
 | Collector unit tests (`node --test` in `apps/collector`) | Pass |
 | Firmware UI headless test, with rendered previews reviewed | Pass |
-| **Firmware compiled by ESPHome and flashed to the device** | **Not done.** ESPHome is not installed on the development machine. The device still runs the previous firmware, which shows the collector's data on its old Overview/Limits screens. |
-| Rings and Dispatch on the physical panel (legibility, touch targets) | Not checked |
+| Firmware compiled by ESPHome 2026.10.2 and flashed to the device | Done 2026-11-15 over `/dev/ttyUSB0`; the device log showed `Snapshot accepted: 13 metrics`. ESPHome is not installed; run it with `uvx --from esphome==2026.10.2 esphome ...`. The user is not in the `uucp` group, so the serial port needs `sudo setfacl -m u:$USER:rw /dev/ttyUSB0` after each replug. |
+| Rings and Dispatch on the physical panel (legibility, touch targets) | Running on the panel. The owner is undecided about the new faces; expect design changes. |
 | `claude -p "/usage"` uses no quota | Believed, not measured |
 | `agy` keeps its Google login fresh when only the service runs it | Unknown; watch for a Gemini `not-signed-in` issue |
 | Devin API key lifetime | Unknown |
@@ -57,14 +57,13 @@ vendor CLIs / Devin API  ->  apps/collector (systemd user service, port 8788)
 
 ## Next steps
 
-1. Flash the firmware:
+1. To reflash after a change:
    ```sh
-   python -m pip install esphome==2026.10.2
-   esphome compile apps/square-dashboard/capacity.yaml
-   esphome upload apps/square-dashboard/capacity.yaml --device /dev/ttyUSB0
+   uvx --from esphome==2026.10.2 esphome compile apps/square-dashboard/capacity.yaml
+   uvx --from esphome==2026.10.2 esphome upload apps/square-dashboard/capacity.yaml --device /dev/ttyUSB0
    ```
    `secrets.yaml` needs no change; the collector uses the bridge's port and token.
-2. Look at Rings and Dispatch on the panel and adjust sizes if needed.
+2. Decide whether Rings and Dispatch stay as they are, change, or go.
 3. Optional faces, designed but not built: **Pace** (where each week lands
    at the current rate) and **Refill timeline**. Mockups:
    https://claude.ai/artifact/1TQN24MW3DiPkig7hBLxzR
