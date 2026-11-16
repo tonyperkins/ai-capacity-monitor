@@ -12,10 +12,12 @@ bridge used before it.
 - **Home:** one row per provider, five visible without scrolling. Each row
   has two fixed columns: the short window (session, 5-hour or daily) and the
   long one (weekly). A cell shows percent remaining in large type, the window
-  (`5h`, `day`, `7d`), the reset countdown, and a bar. The violet tick on the
-  bar is the time left in that window on the same scale: a bar that reaches
-  past its tick has capacity to spare, and one that stops short is running
-  ahead of the clock. A provider with no short window (Grok) leaves that cell
+  (`5h`, `day`, `7d`), the reset countdown, and a capacity bar with a thin
+  violet bar under it for the time left in that window, on the same scale.
+  Capacity longer than time means there is capacity to spare; shorter means
+  it is being used faster than the clock. (`capacity_ui::time_style` still
+  holds three alternatives while the owner chooses: a tick on the bar, a
+  green/red surplus segment, and a bar coloured by pace.) A provider with no short window (Grok) leaves that cell
   empty. Scoped limits, such as Claude's Fable cap or Antigravity's Argon
   group, appear as a small line under the provider name. Percentages turn
   amber at or under 25% and red at or under 10%; a prior value is grey and
@@ -25,12 +27,13 @@ bridge used before it.
   shows the remaining percentage, capacity bar, reset countdown and a compact
   violet time-left bar. Credit balances, if a snapshot has any, follow the
   quotas; USD values are converted from the contract's integer cents.
-- **Settings:** brightness, a saved Rotate 90 deg clockwise control, and Touch calibration. Refresh stays available in the bottom button row.
+- **Settings:** brightness, a saved Rotate 90 deg clockwise control, Touch calibration, and Refresh now.
 - **Metric details:** tap a card for its source label, reading state, reading
   age, capacity, exact local reset date/time, and separately labeled time
   remaining in its reset window. A due reset stays marked as awaiting collection;
   the display never fabricates a refilled bucket.
-- **Issues:** an explicit amber button opens collection warnings, including
+- **Issues:** when there are any, the status strip at the top shows an amber
+  count and becomes tappable; it opens collection warnings, including
   sources the collector could not read and readings this firmware skipped.
 
 Nothing in the firmware names a provider or a limit. A provider is summarised
@@ -42,11 +45,15 @@ value or a repeated key is skipped and counted, and the rest of the snapshot
 is shown. A payload is rejected only when its envelope is wrong or nothing in
 it is usable. With more than five providers the Home face scrolls.
 
-There are no double-tap or hold gestures. Navigation targets are at least
-44 pixels tall. Text and bars update without animations or full-screen clears;
-unchanged widgets are retained. Home is redrawn only when a value it shows
-changes, and once a minute so countdowns keep moving. Tabs and detail pages are deliberate touch
-navigation rather than timed page cycling. Rotate cycles through 0, 90, 180, and 270 degrees and saves the selected
+Navigation is by swipe: left for the next page, right for the previous, in
+the order Home, Limits, Settings, with page dots at the bottom. On a detail
+page a swipe right goes back, as does the Back button. There are no edge,
+double-tap or hold gestures, and touch calibration ignores swipes. Dragging
+the brightness slider does not turn the page. Buttons and rows are at least
+44 pixels tall; the issues strip is 34. Text and bars update without
+animations or full-screen clears; unchanged widgets are retained. Home is
+redrawn only when a value it shows changes, and once a minute so countdowns
+keep moving. Rotate cycles through 0, 90, 180, and 270 degrees and saves the selected
 orientation. ESPHome rotates both the display output and calibrated touch
 coordinates together. Calibration temporarily returns to the panel's base
 orientation and restores the selected orientation when finished.

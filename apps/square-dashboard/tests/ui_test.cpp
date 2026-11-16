@@ -9,6 +9,14 @@ static void flush(lv_display_t* d,const lv_area_t* a,uint8_t* data) {
   for(int y=a->y1;y<=a->y2;++y) for(int x=a->x1;x<=a->x2;++x) pixels[y*480+x]=*in++;
   lv_display_flush_ready(d);
 }
+// A scripted finger, so swipes go through LVGL's own gesture detection.
+static lv_indev_data_t finger;
+static void read_finger(lv_indev_t*,lv_indev_data_t* data) { *data=finger; }
+static void pump(int cycles=1) { for(int i=0;i<cycles;++i) { lv_tick_inc(40);lv_timer_handler(); } }
+static void drag(int x0,int y0,int x1,int y1) {
+  for(int i=0;i<=8;++i) { finger.point.x=x0+(x1-x0)*i/8;finger.point.y=y0+(y1-y0)*i/8;finger.state=LV_INDEV_STATE_PRESSED;pump(); }
+  finger.state=LV_INDEV_STATE_RELEASED;pump(3);
+}
 static void shot(lv_display_t* display,const char* name) {
   lv_obj_update_layout(lv_screen_active());lv_tick_inc(20);lv_timer_handler();lv_refr_now(display);
   std::ofstream out(std::string(name)+".ppm",std::ios::binary);out<<"P6\n480 480\n255\n";
@@ -99,6 +107,7 @@ int main() {
   static uint16_t draw[480*480];lv_display_set_color_format(display,LV_COLOR_FORMAT_RGB565);
   lv_display_set_buffers(display,draw,nullptr,sizeof(draw),LV_DISPLAY_RENDER_MODE_FULL);lv_display_set_flush_cb(display,flush);
   int refreshes=0;float brightness=0;
+  auto* pointer=lv_indev_create();lv_indev_set_type(pointer,LV_INDEV_TYPE_POINTER);lv_indev_set_read_cb(pointer,read_finger);
   capacity_ui::begin([&]{++refreshes;},[&](float v){brightness=v;});
   shot(display,"connecting");
   // Home: one row per provider, all visible without scrolling.
@@ -113,6 +122,21 @@ int main() {
     lv_text_get_size(&size,"23h 59m",&lv_font_montserrat_14,0,0,1000,LV_TEXT_FLAG_NONE);assert(size.x<=66);
     lv_text_get_size(&size,"100%",&lv_font_montserrat_32,0,0,1000,LV_TEXT_FLAG_NONE);assert(size.x<=98);
     lv_text_get_size(&size,"ChatGPT",&lv_font_montserrat_18,0,0,1000,LV_TEXT_FLAG_NONE);assert(size.x<=88); }
+  // The three ways of showing time left, for comparison.
+  for(int style : {0,2,3,1}) { capacity_ui::time_style=style;capacity_ui::layout_key.clear();capacity_ui::render();shot(display,("home-time-"+std::to_string(style)).c_str()); }
+  // Swipes turn the page, stop at either end, and never click what they start on.
+  drag(400,150,80,155);assert(capacity_ui::view==capacity_ui::LIMITS && !capacity_ui::modal);
+  drag(400,150,80,155);assert(capacity_ui::view==capacity_ui::SETTINGS);
+  drag(400,300,80,300);assert(capacity_ui::view==capacity_ui::SETTINGS);
+  { int before=capacity_ui::brightness; drag(60,162,380,162);  // dragging the slider is not a page swipe
+    assert(capacity_ui::view==capacity_ui::SETTINGS && capacity_ui::brightness!=before); }
+  drag(80,300,400,300);assert(capacity_ui::view==capacity_ui::LIMITS);
+  drag(80,150,400,150);assert(capacity_ui::view==capacity_ui::HOME && !capacity_ui::modal);
+  drag(80,150,400,150);assert(capacity_ui::view==capacity_ui::HOME);
+  drag(240,100,240,300);assert(capacity_ui::view==capacity_ui::HOME && !capacity_ui::modal);  // vertical: nothing
+  // A tap still opens a row; a swipe right on the detail page goes back.
+  drag(240,80,241,80);assert(capacity_ui::modal && capacity_ui::detail_provider=="claude");
+  drag(80,240,400,240);assert(!capacity_ui::modal && capacity_ui::view==capacity_ui::HOME);
   // Grok has no short window, so its row has fewer children than Claude's.
   assert(lv_obj_get_child_count(lv_obj_get_child(capacity_ui::body,3))<lv_obj_get_child_count(lv_obj_get_child(capacity_ui::body,0)));
   // A row opens every reading of that provider.
@@ -129,7 +153,7 @@ int main() {
   assert(capacity_ui::layout_key!=key_before);
   doc["metrics"][8]["value"]=50;assert(capacity_ui::accept_snapshot(doc.as<JsonObject>()));
   // Limits: every reading, quotas first, then balances.
-  lv_obj_send_event(capacity_ui::nav[capacity_ui::LIMITS],LV_EVENT_CLICKED,nullptr);
+  capacity_ui::show_view(capacity_ui::LIMITS);
   assert(capacity_ui::rows.size()==13);shot(display,"limits");assert(lv_obj_get_scroll_bottom(capacity_ui::body)>0);
   assert(std::string(lv_label_get_text(capacity_ui::rows[2].name))=="Claude / Current week (Fable)");
   assert(std::string(lv_label_get_text(capacity_ui::rows[6].name))=="Gemini / Gemini 4 Argon / Weekly Limit");
@@ -146,7 +170,8 @@ int main() {
   assert(lv_obj_get_height(unlimited_row.value)==lv_font_montserrat_20.line_height);
   assert(lv_obj_get_y(unlimited_row.value)+lv_obj_get_height(unlimited_row.value)<lv_obj_get_y(unlimited_row.bar));
   lv_obj_scroll_to_view(lv_obj_get_parent(unlimited_row.name),LV_ANIM_OFF);shot(display,"limits-end");
-  lv_obj_send_event(capacity_ui::nav[capacity_ui::SETTINGS],LV_EVENT_CLICKED,nullptr);shot(display,"settings");
+  capacity_ui::show_view(capacity_ui::SETTINGS);shot(display,"settings");
+  assert(capacity_ui::refresh_button);
   for(uint32_t i=0;i<lv_obj_get_child_count(capacity_ui::body);++i) {
     auto* child=lv_obj_get_child(capacity_ui::body,i);
     if(lv_obj_check_type(child,&lv_slider_class)) {lv_slider_set_value(child,75,LV_ANIM_OFF);lv_obj_send_event(child,LV_EVENT_VALUE_CHANGED,nullptr);}
@@ -171,7 +196,7 @@ int main() {
   lv_obj_send_event(capacity_ui::refresh_button,LV_EVENT_CLICKED,nullptr);assert(refreshes==1);
   capacity_ui::set_busy(true);assert(lv_obj_has_state(capacity_ui::refresh_button,LV_STATE_DISABLED));
   capacity_ui::connection_failed();assert(!capacity_ui::online);assert(capacity_ui::snapshot.metrics.size()==13);
-  lv_obj_send_event(capacity_ui::nav[capacity_ui::HOME],LV_EVENT_CLICKED,nullptr);
+  capacity_ui::show_view(capacity_ui::HOME);
   assert(std::string(lv_label_get_text(capacity_ui::status)).find("Offline")!=std::string::npos);
   // A source the collector could not read keeps its last values, flagged.
   doc["diagnostics"][0]["key"]="chatgpt/weekly";doc["diagnostics"][0]["state"]="retained-prior";
@@ -179,7 +204,7 @@ int main() {
   assert(capacity_ui::accept_snapshot(doc.as<JsonObject>()));shot(display,"attention");
   assert(!lv_obj_has_flag(capacity_ui::issues_button,LV_OBJ_FLAG_HIDDEN));
   assert(std::string(lv_label_get_text(lv_obj_get_child(capacity_ui::issues_button,0)))=="2 issues");
-  lv_obj_send_event(capacity_ui::nav[capacity_ui::LIMITS],LV_EVENT_CLICKED,nullptr);
+  capacity_ui::show_view(capacity_ui::LIMITS);
   assert(std::string(lv_label_get_text(capacity_ui::rows[4].note))=="Previous reading / prior value");
   lv_obj_send_event(capacity_ui::issues_button,LV_EVENT_CLICKED,nullptr);assert(capacity_ui::modal);shot(display,"issues");capacity_ui::close_detail(nullptr);
   // Fewer providers get taller rows; more than five scroll.
@@ -187,7 +212,7 @@ int main() {
     auto one=[&](const std::string& id,double value) { auto m=items.add<JsonObject>();
       m["key"]=id+"/weekly";m["provider"]=id;m["label"]="Weekly limit";m["kind"]="quota";m["unit"]="percent";m["value"]=value;m["status"]="verified";m["readState"]="validated";m["resetWindowMs"]=604800000LL;m["resetAt"]=iso(2*D); };
     one("Solo",4);one("Duo",20);
-    lv_obj_send_event(capacity_ui::nav[capacity_ui::HOME],LV_EVENT_CLICKED,nullptr);
+    capacity_ui::show_view(capacity_ui::HOME);
     assert(capacity_ui::accept_snapshot(few.as<JsonObject>()));assert(capacity_ui::tap_ids.size()==2);shot(display,"home-two");
     assert(lv_obj_get_height(lv_obj_get_child(capacity_ui::body,0))>100);
     for(const char* id : {"C","D","E","F","G"}) one(id,60);

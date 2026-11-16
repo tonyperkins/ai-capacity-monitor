@@ -19,7 +19,7 @@ vendor CLIs / Devin API  ->  apps/collector (systemd user service, port 8788)
   Claude, ChatGPT, Gemini (Antigravity), Grok and Devin every 10 minutes. No
   browser, no extension. See its [README](../apps/collector/README.md).
 - **Display** (`apps/square-dashboard`): polls the collector once a minute.
-  Faces: Home (one row per provider), Limits, Settings.
+  Pages, by swipe: Home (one row per provider), Limits, Settings.
 - **Snapshot file**: other local tools (for example coding agents deciding
   which subscription to use) read `latest-snapshot.json`.
 
@@ -67,14 +67,18 @@ vendor CLIs / Devin API  ->  apps/collector (systemd user service, port 8788)
    uvx --from esphome==2026.10.2 esphome upload apps/square-dashboard/capacity.yaml --device /dev/ttyUSB0
    ```
    `secrets.yaml` needs no change; the collector uses the bridge's port and token.
-2. Live with the Home face and adjust sizes or colours as needed.
-3. Optional faces, designed but not built: **Pace** (where each week lands
+2. Pick how Home shows time left. `capacity_ui::time_style` is 1 (a second
+   bar); 0 (tick), 2 (surplus segment) and 3 (pace colour) are still in the
+   code. Delete the unused styles once chosen.
+3. Tune swipe feel on the panel if needed (`lv_indev_set_gesture_min_distance`).
+   Possible later: pull down on Home to make the collector read right now.
+4. Optional faces, designed but not built: **Pace** (where each week lands
    at the current rate) and **Refill timeline**. The Home face already
    carries the pace idea as the tick on each bar. Mockups:
    https://claude.ai/artifact/1TQN24MW3DiPkig7hBLxzR
-4. Once the collector has run without trouble for a while, remove the
+5. Once the collector has run without trouble for a while, remove the
    extension, bridge and Chrome Web Store documents in one commit.
-5. v2: credit balances. No vendor CLI exposes them, so the likely route is a
+6. v2: credit balances. No vendor CLI exposes them, so the likely route is a
    headless browser page read, possibly with a local model extracting values.
 
 ## Roll back to the extension and bridge

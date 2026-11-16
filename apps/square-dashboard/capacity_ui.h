@@ -10,8 +10,9 @@ using capacity_model::Snapshot;
 constexpr uint32_t BG = 0x0b1019, PANEL = 0x151f2d, BORDER = 0x29384b;
 constexpr uint32_t TEXT = 0xecf2fa, MUTED = 0x91a4bd, CYAN = 0x59dbef, AMBER = 0xf5c476, RED = 0xff7f88;
 constexpr uint32_t VIOLET = 0xb7a3ff, TRACK = 0x1b2838;
-// Views, in navigation order. Home has one row per provider; Limits lists
-// every reading; Settings holds the display controls.
+// Pages, in swipe order: swipe left for the next, right for the previous.
+// Home has one row per provider; Limits lists every reading; Settings holds
+// the display controls and Refresh.
 enum View { HOME = 0, LIMITS = 1, SETTINGS = 2 };
 inline Snapshot snapshot;
 inline bool have_data = false, online = false, busy = false;
@@ -21,7 +22,11 @@ inline std::function<void(float)> brightness_action;
 inline std::function<void(int,bool)> rotation_action;
 inline lv_obj_t* rotation_label = nullptr;
 inline lv_obj_t *body = nullptr, *status = nullptr, *refresh_button = nullptr, *modal = nullptr, *brightness_label = nullptr, *issues_button = nullptr;
-inline lv_obj_t* nav[3] = {};
+inline lv_obj_t* dots[3] = {};
+// How the Home face shows time left in a window. Kept switchable while the
+// owner chooses: 0 tick on the bar, 1 second bar, 2 surplus/shortfall segment,
+// 3 bar coloured by pace.
+inline int time_style = 1;
 inline std::string layout_key, detail_key, detail_provider;
 struct Row { std::string key; lv_obj_t *name, *value, *note, *reset, *bar, *time_bar; };
 inline std::vector<Row> rows;
@@ -172,8 +177,8 @@ inline void show_issues(lv_event_t*) {
   }
 }
 inline void refresh_clicked(lv_event_t*) { if (!busy && refresh_action) refresh_action(); }
-inline void navigate(lv_event_t* e) {
-  view = int(reinterpret_cast<uintptr_t>(lv_event_get_user_data(e)));
+inline void show_view(int next) {
+  view = std::max(int(HOME),std::min(int(SETTINGS),next));
   layout_key.clear(); render();
 }
 inline void slider_changed(lv_event_t* e) {
@@ -282,15 +287,19 @@ inline void render_settings() {
   lv_slider_set_range(slider,10,100); lv_slider_set_value(slider,brightness,LV_ANIM_OFF);
   lv_obj_set_style_bg_color(slider,color(CYAN),LV_PART_INDICATOR); lv_obj_set_style_bg_color(slider,color(CYAN),LV_PART_KNOB);
   lv_obj_add_event_cb(slider,slider_changed,LV_EVENT_VALUE_CHANGED,nullptr);
+  // Dragging the slider sideways must not turn the page.
+  lv_obj_remove_flag(slider,LV_OBJ_FLAG_GESTURE_BUBBLE);
   label(body,"Orientation",0,158,300,&lv_font_montserrat_20);
   rotation_label=label(body,std::to_string(rotation_degrees)+" deg",328,158,116,&lv_font_montserrat_20,CYAN);
   button(body,"Rotate 90 deg clockwise",0,192,448,48,rotate_clicked);
   button(body,"Calibrate touch",0,258,448,48,start_calibration);
-  auto* help=label(body,"Orientation is saved. Touch calibration stays aligned when you rotate.",0,338,448,&lv_font_montserrat_16,MUTED);
+  refresh_button=button(body,"Refresh now",0,324,448,48,refresh_clicked);
+  if (busy) lv_obj_add_state(refresh_button,LV_STATE_DISABLED);
+  auto* help=label(body,"Refresh fetches the collector's latest snapshot. It does not start a new reading.",0,384,448,&lv_font_montserrat_14,MUTED);
   lv_label_set_long_mode(help,LV_LABEL_LONG_WRAP);
-  help=label(body,"Refresh fetches the collector's latest snapshot. It does not start a new reading.",0,420,448,&lv_font_montserrat_14,MUTED);
+  help=label(body,"Orientation is saved. Touch calibration stays aligned when you rotate.",0,432,448,&lv_font_montserrat_14,MUTED);
   lv_label_set_long_mode(help,LV_LABEL_LONG_WRAP);
-  label(body,"480 x 480 / LVGL touch dashboard",0,488,448,&lv_font_montserrat_14,MUTED);
+  label(body,"Swipe left or right to change page / 480 x 480",0,480,448,&lv_font_montserrat_14,MUTED);
 }
 inline void update_rows() {
   const auto now = ::time(nullptr);
@@ -323,8 +332,10 @@ inline void update_rows() {
 // the bar is the time left in the window on the same scale: a bar that reaches
 // past its tick has capacity to spare, one that stops short is running ahead
 // of the clock. A provider with no short window leaves that cell empty.
+inline void plain(lv_obj_t* o) { lv_obj_set_style_border_width(o,0,0); lv_obj_remove_flag(o,LV_OBJ_FLAG_CLICKABLE); }
 inline void home_cell(lv_obj_t* card,int x,const Metric& m,time_t now) {
   constexpr int W=164, SIDE=66;  // SIDE fits the widest countdown, "23h 59m"
+  constexpr uint32_t SPARE=0x6fe3a5, SHORT=0x7a3a44;
   label(card,m.display,x,5,W-SIDE,&lv_font_montserrat_32,ink(m));
   auto* window=label(card,m.attention()?"prior":capacity_model::window_name(m.window_ms),x+W-SIDE,8,SIDE,&lv_font_montserrat_14,m.attention()?AMBER:MUTED);
   const bool timed=m.reset && now>1700000000;
@@ -335,15 +346,25 @@ inline void home_cell(lv_obj_t* card,int x,const Metric& m,time_t now) {
     lv_obj_set_height(text,lv_font_montserrat_14.line_height);
     lv_obj_set_style_text_align(text,LV_TEXT_ALIGN_RIGHT,0);
   }
-  bar(card,x,49,W,8,int(m.value),level(m));
-  const int left=capacity_model::reset_percent(m,now);
-  if (left>=0) {
-    auto* tick=lv_obj_create(card); box(tick,x+std::min(W-3,W*left/100),45,3,16,VIOLET,1);
-    lv_obj_set_style_border_width(tick,0,0); lv_obj_remove_flag(tick,LV_OBJ_FLAG_CLICKABLE);
+  const int have=int(m.value), left=capacity_model::reset_percent(m,now);
+  uint32_t shade=level(m);
+  if (time_style==3 && left>=0 && shade==CYAN && have<left) shade=AMBER;
+  bar(card,x,49,W,8,have,shade);
+  if (left<0 || m.attention()) return;
+  if (time_style==0) {
+    auto* tick=lv_obj_create(card); box(tick,x+std::min(W-3,W*left/100),45,3,16,VIOLET,1); plain(tick);
+  } else if (time_style==1) {
+    // Time left in the window, on the same scale as the capacity bar above it.
+    bar(card,x,61,W,4,left,VIOLET);
+  } else if (time_style==2 && have!=left) {
+    // The stretch between time left and capacity left: green when capacity
+    // is ahead of the clock, dull red when it is behind.
+    const int from=W*std::min(have,left)/100, to=W*std::max(have,left)/100;
+    auto* part=lv_obj_create(card); box(part,x+from,49,std::max(2,to-from),8,have>left?SPARE:SHORT,have>left?4:0); plain(part);
   }
 }
 inline void render_home(const std::vector<capacity_model::Provider>& list, time_t now) {
-  const int pitch=std::max(78,std::min(110,388/int(list.size())));
+  const int pitch=std::max(83,std::min(110,418/int(list.size())));
   for (size_t i=0;i<list.size();++i) {
     const auto& p=list[i];
     auto* card=tap_area(body,0,int(i)*pitch,448,pitch-5,p.id);
@@ -377,7 +398,7 @@ inline void render() {
     key += ":"+std::to_string((long long)(now/60));
   }
   if (layout_key != key) {
-    layout_key = key; rows.clear(); tap_ids.clear(); brightness_label = nullptr; rotation_label=nullptr;
+    layout_key = key; rows.clear(); tap_ids.clear(); brightness_label = nullptr; rotation_label=nullptr; refresh_button=nullptr;
     lv_obj_clean(body); lv_obj_scroll_to_y(body,0,LV_ANIM_OFF);
     if (view == SETTINGS) render_settings();
     else if (!have_data) message("Connecting to your data","Waiting for the collector's snapshot.");
@@ -408,8 +429,8 @@ inline void render() {
       else render_home(list,now);
     }
     for (int i=0;i<3;++i) {
-      lv_obj_set_style_bg_color(nav[i],color(i==view?CYAN:PANEL),0);
-      auto* l=lv_obj_get_child(nav[i],0);lv_obj_set_style_text_color(l,color(i==view?BG:MUTED),0);
+      lv_obj_set_style_bg_color(dots[i],color(i==view?CYAN:BORDER),0);
+      lv_obj_set_width(dots[i],i==view?20:8);
     }
   }
   update_rows(); update_status();
@@ -463,22 +484,47 @@ inline void set_brightness_level(float value) {
   brightness=std::max(10,std::min(100,int(std::lround(value*100))));
   if (brightness_label) set_text(brightness_label,std::to_string(brightness)+"%");
 }
+// Swipe left/right turns the page. On a detail page a swipe right goes back.
+// Touch calibration ignores swipes.
+inline void swipe(lv_dir_t dir) {
+  if (modal) { if (dir==LV_DIR_RIGHT && calibration_stage==-1) close_detail(nullptr); return; }
+  if (dir==LV_DIR_LEFT && view<SETTINGS) show_view(view+1);
+  else if (dir==LV_DIR_RIGHT && view>HOME) show_view(view-1);
+}
+inline void gesture(lv_event_t*) {
+  auto* indev=lv_indev_active(); if (!indev) return;
+  const auto dir=lv_indev_get_gesture_dir(indev);
+  if (dir!=LV_DIR_LEFT && dir!=LV_DIR_RIGHT) return;
+  // The finger is still down: do not let its release click whatever is drawn next.
+  lv_indev_wait_release(indev);
+  swipe(dir);
+}
 inline void begin(std::function<void()> refresh, std::function<void(float)> set_brightness) {
   refresh_action=std::move(refresh);brightness_action=std::move(set_brightness);
   auto* root=lv_screen_active();box(root,0,0,480,480,BG,0);
-  // A thin status line, the body, then one row of buttons: three views, the
-  // issues button (shown only when there are issues) and Refresh.
-  status=label(root,"Connecting...",16,7,448,&lv_font_montserrat_14,MUTED);
-  body=lv_obj_create(root);box(body,16,30,448,388,BG,0);lv_obj_set_style_border_width(body,0,0);
+  // A status strip, the body, then page dots. The strip is a button only
+  // while there are issues: tapping it lists them.
+  status=label(root,"Connecting...",16,9,330,&lv_font_montserrat_14,MUTED);
+  issues_button=lv_obj_create(root);box(issues_button,0,0,480,34,BG,0);plain(issues_button);
+  lv_obj_set_style_bg_opa(issues_button,LV_OPA_TRANSP,0);
+  lv_obj_add_flag(issues_button,LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_add_event_cb(issues_button,show_issues,LV_EVENT_CLICKED,nullptr);
+  auto* count=label(issues_button,"",330,9,134,&lv_font_montserrat_14,AMBER);
+  lv_obj_set_style_text_align(count,LV_TEXT_ALIGN_RIGHT,0);
+  lv_obj_add_flag(issues_button,LV_OBJ_FLAG_HIDDEN);
+  body=lv_obj_create(root);box(body,16,34,448,418,BG,0);lv_obj_set_style_border_width(body,0,0);
   lv_obj_add_flag(body,LV_OBJ_FLAG_SCROLLABLE);lv_obj_set_scroll_dir(body,LV_DIR_VER);
   lv_obj_set_scrollbar_mode(body,LV_SCROLLBAR_MODE_AUTO);
-  const char* names[]={"Home","Limits","Settings"};
-  for (int i=0;i<3;++i) nav[i]=button(root,names[i],16+i*91,426,84,44,navigate,reinterpret_cast<void*>(uintptr_t(i)));
-  issues_button=button(root,"Issues",16+3*91,426,84,44,show_issues);
-  lv_obj_set_style_bg_color(issues_button,color(0x3a291a),0);
-  lv_obj_set_style_text_color(lv_obj_get_child(issues_button,0),color(AMBER),0);
-  lv_obj_add_flag(issues_button,LV_OBJ_FLAG_HIDDEN);
-  refresh_button=button(root,"Refresh",16+4*91,426,84,44,refresh_clicked);
+  auto* strip=lv_obj_create(root);box(strip,190,462,100,8,BG,0);plain(strip);
+  lv_obj_set_layout(strip,LV_LAYOUT_FLEX);lv_obj_set_flex_flow(strip,LV_FLEX_FLOW_ROW);
+  lv_obj_set_flex_align(strip,LV_FLEX_ALIGN_CENTER,LV_FLEX_ALIGN_CENTER,LV_FLEX_ALIGN_CENTER);
+  lv_obj_set_style_pad_column(strip,8,0);
+  for (int i=0;i<3;++i) { dots[i]=lv_obj_create(strip);box(dots[i],0,0,8,8,BORDER,4);plain(dots[i]); }
+  // Gestures stop at the screen and at the layer that holds detail pages.
+  for (auto* target : {root,lv_layer_top()}) {
+    lv_obj_remove_flag(target,LV_OBJ_FLAG_GESTURE_BUBBLE);
+    lv_obj_add_event_cb(target,gesture,LV_EVENT_GESTURE,nullptr);
+  }
   render();
 }
 }
