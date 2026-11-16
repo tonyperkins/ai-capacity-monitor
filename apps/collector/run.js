@@ -24,6 +24,7 @@ async function loadConfig() {
     intervalMs: Math.max(1, Math.min(1440, Number.isFinite(interval) ? interval : 10)) * 60000,
     enabled: settings.sources ?? {},
     options: settings.options ?? {},
+    hide: Array.isArray(settings.hide) ? settings.hide : [],
   };
 }
 
@@ -51,7 +52,7 @@ function sendJson(response, status, body) {
 const config = await loadConfig();
 
 if (once) {
-  const snapshot = await collect({ enabled: config.enabled, options: config.options, previous: await loadSnapshot(config.snapshotPath) });
+  const snapshot = await collect({ enabled: config.enabled, options: config.options, hide: config.hide, previous: await loadSnapshot(config.snapshotPath) });
   if (process.argv.includes("--write")) await saveSnapshot(config.snapshotPath, snapshot);
   console.log(JSON.stringify(snapshot, null, 2));
 } else {
@@ -59,7 +60,7 @@ if (once) {
   let latest = await loadSnapshot(config.snapshotPath);
   let running = null;
   const refresh = () => {
-    running ??= collect({ enabled: config.enabled, options: config.options, previous: latest })
+    running ??= collect({ enabled: config.enabled, options: config.options, hide: config.hide, previous: latest })
       .then(async (snapshot) => {
         latest = snapshot;
         await saveSnapshot(config.snapshotPath, snapshot);

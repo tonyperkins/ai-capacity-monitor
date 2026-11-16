@@ -41,7 +41,11 @@ function toMetric(source, limit, at) {
 // Reads every enabled source. A source that answers replaces its own lines
 // outright, so limits that vanish upstream vanish here. A source that fails
 // keeps its previous lines, marked as prior values.
-export async function collect({ sources = SOURCES, enabled = {}, previous = null, now = new Date(), options = {} } = {}) {
+// `hide` lists limits to leave out of the snapshot. An entry matches a limit's
+// key, its group or its label, ignoring case.
+export async function collect({ sources = SOURCES, enabled = {}, previous = null, now = new Date(), options = {}, hide = [] } = {}) {
+  const hidden = new Set(hide.map((entry) => String(entry).toLowerCase()));
+  const isHidden = (metric) => [metric.key, metric.group, metric.label].some((text) => text && hidden.has(String(text).toLowerCase()));
   const at = now.toISOString();
   const active = sources.filter((source) => enabled[source.id] !== false);
   const results = await Promise.all(active.map(async (source) => {
@@ -54,10 +58,10 @@ export async function collect({ sources = SOURCES, enabled = {}, previous = null
   for (const { source, limits, errorCode } of results) {
     if (limits) {
       sourceStates[source.id] = "validated";
-      metrics.push(...limits.map((limit) => toMetric(source, limit, at)));
+      metrics.push(...limits.map((limit) => toMetric(source, limit, at)).filter((metric) => !isHidden(metric)));
       continue;
     }
-    const prior = (previous?.metrics ?? []).filter((metric) => metric.providerId === source.id);
+    const prior = (previous?.metrics ?? []).filter((metric) => metric.providerId === source.id && !isHidden(metric));
     sourceStates[source.id] = prior.length ? "retained-prior" : "failed";
     metrics.push(...prior.map((metric) => ({ ...metric, status: "unverified", readState: "retained-prior", errorCode, attemptedAt: at })));
     issues.push(prior.length

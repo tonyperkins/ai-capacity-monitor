@@ -45,3 +45,17 @@ test("a disabled source is not read", async () => {
   assert.equal(called, false);
   assert.deepEqual(snapshot.metrics, []);
 });
+
+test("hidden limits are left out by key, group or label, including retained prior values", async () => {
+  const limits = [
+    weekly,
+    { id: "other-weekly", label: "Other models · Weekly Limit", remaining: 100, group: "Other models" },
+    { id: "extra", label: "Extra line", remaining: 50 },
+  ];
+  const hide = ["other MODELS", "a/extra"];
+  const first = await collect({ now: NOW, hide, sources: [source("a", "Alpha", async () => limits)] });
+  assert.deepEqual(first.metrics.map((metric) => metric.key), [`a/${weekly.id}`]);
+  const unhidden = await collect({ now: NOW, sources: [source("a", "Alpha", async () => limits)] });
+  const failed = await collect({ now: NOW, hide, previous: unhidden, sources: [source("a", "Alpha", async () => { throw Object.assign(new Error("x"), { code: "timeout" }); })] });
+  assert.deepEqual(failed.metrics.map((metric) => metric.key), [`a/${weekly.id}`]);
+});

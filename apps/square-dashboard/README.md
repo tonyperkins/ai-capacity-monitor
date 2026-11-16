@@ -9,26 +9,23 @@ bridge used before it.
 
 ## What the interface emphasizes
 
-- **Rings** (home): one arc per provider, up to five, showing its tightest
-  long-window limit as percent remaining. Arcs run clockwise from 12 o'clock
-  over three quarters of a circle. A violet dot on each ring marks the time
-  left in that limit's window on the same scale: an arc that reaches past its
-  dot has capacity to spare, and one that stops short is being used faster
-  than the window allows. The dot is absent when the reset time is unknown.
-  Beside each ring: provider, percent left, and its short-window limit (such
-  as `5h 36`), red at or under 10%. The centre shows the tightest provider and
-  opens its detail page.
-- **Dispatch:** where to send the next job. Providers are ranked by spare
-  capacity per hour until reset (percent left divided by hours left), so
-  capacity that would expire unused is spent first. Providers with a stale
-  reading rank after fresh ones, and those with any limit at or under the 10%
-  hold line rank last and are marked On hold. The amber tick on each bar is
-  the hold line.
+- **Home:** one row per provider, five visible without scrolling. Each row
+  has two fixed columns: the short window (session, 5-hour or daily) and the
+  long one (weekly). A cell shows percent remaining in large type, the window
+  (`5h`, `day`, `7d`), the reset countdown, and a bar. The violet tick on the
+  bar is the time left in that window on the same scale: a bar that reaches
+  past its tick has capacity to spare, and one that stops short is running
+  ahead of the clock. A provider with no short window (Grok) leaves that cell
+  empty. Scoped limits, such as Claude's Fable cap or Antigravity's Argon
+  group, appear as a small line under the provider name. Percentages turn
+  amber at or under 25% and red at or under 10%; a prior value is grey and
+  marked `prior`. Tapping a row lists every reading for that provider with
+  exact reset times.
 - **Limits:** every reading, with ordinary vertical scrolling. Each card
   shows the remaining percentage, capacity bar, reset countdown and a compact
   violet time-left bar. Credit balances, if a snapshot has any, follow the
   quotas; USD values are converted from the contract's integer cents.
-- **Settings:** brightness, a saved Rotate 90 deg clockwise control, and Touch calibration. Refresh stays available in the header.
+- **Settings:** brightness, a saved Rotate 90 deg clockwise control, and Touch calibration. Refresh stays available in the bottom button row.
 - **Metric details:** tap a card for its source label, reading state, reading
   age, capacity, exact local reset date/time, and separately labeled time
   remaining in its reset window. A due reset stays marked as awaiting collection;
@@ -37,17 +34,18 @@ bridge used before it.
   sources the collector could not read and readings this firmware skipped.
 
 Nothing in the firmware names a provider or a limit. A provider is summarised
-by rule (`capacity_model::providers`): its primary limit is the tightest one
-with a window of six days or more, or no stated window; its quick limit is the
-tightest shorter one. A reading with an unknown kind or unit, an out-of-range
+by rule (`capacity_model::providers`), in the order the provider reports them:
+its quick limit is the first with a window under six days; its main limit is
+the first longer one (or one with no stated window) that does not count toward
+another; its other long-window limits are extras. A reading with an unknown kind or unit, an out-of-range
 value or a repeated key is skipped and counted, and the rest of the snapshot
 is shown. A payload is rejected only when its envelope is wrong or nothing in
-it is usable. More than five providers would need a layout change on Rings.
+it is usable. With more than five providers the Home face scrolls.
 
 There are no double-tap or hold gestures. Navigation targets are at least
 44 pixels tall. Text and bars update without animations or full-screen clears;
-unchanged widgets are retained. Rings and Dispatch are redrawn only when a
-value they show changes, and every ten minutes so countdowns keep moving. Tabs and detail pages are deliberate touch
+unchanged widgets are retained. Home is redrawn only when a value it shows
+changes, and once a minute so countdowns keep moving. Tabs and detail pages are deliberate touch
 navigation rather than timed page cycling. Rotate cycles through 0, 90, 180, and 270 degrees and saves the selected
 orientation. ESPHome rotates both the display output and calibrated touch
 coordinates together. Calibration temporarily returns to the panel's base
@@ -128,7 +126,7 @@ If `cmake` is not installed, ESPHome's own copy works:
 `~/.cache/esphome/idf/tools/cmake/<version>/bin/cmake`.
 
 Tests cover snapshot validation, skipping of readings the firmware does not
-understand, provider summaries, dispatch order, the Rings and Dispatch faces,
+understand, provider summaries, the Home face and provider page,
 USD units, invalid-response retention, touch navigation, scrolling, detail views, brightness,
 refresh, offline/attention states, calibration recovery for offset/scaled/swapped
 controllers, rejection of inconsistent samples, and confirmation before saving. They write 480×480 PPM previews using

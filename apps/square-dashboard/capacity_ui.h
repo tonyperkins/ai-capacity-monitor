@@ -10,9 +10,9 @@ using capacity_model::Snapshot;
 constexpr uint32_t BG = 0x0b1019, PANEL = 0x151f2d, BORDER = 0x29384b;
 constexpr uint32_t TEXT = 0xecf2fa, MUTED = 0x91a4bd, CYAN = 0x59dbef, AMBER = 0xf5c476, RED = 0xff7f88;
 constexpr uint32_t VIOLET = 0xb7a3ff, TRACK = 0x1b2838;
-// Views, in navigation order. Rings and Dispatch summarise each provider;
-// Limits lists every reading; Settings holds the display controls.
-enum View { RINGS = 0, DISPATCH = 1, LIMITS = 2, SETTINGS = 3 };
+// Views, in navigation order. Home has one row per provider; Limits lists
+// every reading; Settings holds the display controls.
+enum View { HOME = 0, LIMITS = 1, SETTINGS = 2 };
 inline Snapshot snapshot;
 inline bool have_data = false, online = false, busy = false;
 inline int view = 0, brightness = 100, rotation_degrees = 0;
@@ -21,8 +21,8 @@ inline std::function<void(float)> brightness_action;
 inline std::function<void(int,bool)> rotation_action;
 inline lv_obj_t* rotation_label = nullptr;
 inline lv_obj_t *body = nullptr, *status = nullptr, *refresh_button = nullptr, *modal = nullptr, *brightness_label = nullptr, *issues_button = nullptr;
-inline lv_obj_t* nav[4] = {};
-inline std::string layout_key, detail_key;
+inline lv_obj_t* nav[3] = {};
+inline std::string layout_key, detail_key, detail_provider;
 struct Row { std::string key; lv_obj_t *name, *value, *note, *reset, *bar, *time_bar; };
 inline std::vector<Row> rows;
 // The bundled Montserrat fonts cover ASCII plus the degree sign and bullet.
@@ -83,10 +83,10 @@ inline const Metric* find(const std::string& key) {
   for (const auto& m : snapshot.metrics) if (m.key == key) return &m;
   return nullptr;
 }
-inline void close_detail(lv_event_t*) { if (modal) lv_obj_delete(modal); modal = nullptr; detail_key.clear(); }
+inline void close_detail(lv_event_t*) { if (modal) lv_obj_delete(modal); modal = nullptr; detail_key.clear(); detail_provider.clear(); }
 inline void show_detail(const Metric& m) {
   if (modal) lv_obj_delete(modal);
-  detail_key = m.key;
+  detail_provider.clear(); detail_key = m.key;
   modal = lv_obj_create(lv_layer_top()); box(modal,0,0,480,480,BG,0);
   button(modal,"< Back",16,12,104,44,close_detail);
   label(modal,m.provider,16,76,448,&lv_font_montserrat_24);
@@ -108,17 +108,48 @@ inline void show_detail(const Metric& m) {
   const Metric* parent = m.parent.empty() ? nullptr : find(m.parent);
   label(modal,parent?"Counts toward "+parent->label:m.attention()?"The collector could not read this provider just now.":"Read by the collector on your computer.",16,439,448,&lv_font_montserrat_14,MUTED);
 }
-// Tappable areas on the Rings and Dispatch faces open a reading's detail page.
-inline std::vector<std::string> tap_keys;
+// Colour for a reading: grey when it is a prior value, red at or under the
+// hold line, amber when low, otherwise the normal accent.
+inline uint32_t level(const Metric& m) {
+  return m.attention() ? MUTED : m.value <= capacity_model::HOLD_PERCENT ? RED : m.value <= capacity_model::LOW_PERCENT ? AMBER : CYAN;
+}
+inline uint32_t ink(const Metric& m) { return level(m) == CYAN ? TEXT : level(m); }
+// Every reading of one provider, with exact reset times.
+inline void show_provider(const std::string& id) {
+  if (modal) lv_obj_delete(modal);
+  detail_key.clear(); detail_provider = id;
+  modal = lv_obj_create(lv_layer_top()); box(modal,0,0,480,480,BG,0);
+  button(modal,"< Back",16,12,104,44,close_detail);
+  auto* list=lv_obj_create(modal); box(list,16,66,448,402,BG,0); lv_obj_set_style_border_width(list,0,0);
+  lv_obj_add_flag(list,LV_OBJ_FLAG_SCROLLABLE); lv_obj_set_scroll_dir(list,LV_DIR_VER);
+  const auto now = ::time(nullptr);
+  int y=0;
+  for (const auto& m : snapshot.metrics) {
+    if (capacity_model::provider_id(m) != id) continue;
+    if (!y) { label(modal,m.provider,136,20,328,&lv_font_montserrat_24); }
+    auto* card=lv_obj_create(list); box(card,0,y,448,74);
+    label(card,m.label,12,8,330,&lv_font_montserrat_16);
+    auto* value=label(card,m.display,330,6,106,&lv_font_montserrat_24,m.kind=="quota"?ink(m):TEXT);
+    lv_obj_set_style_text_align(value,LV_TEXT_ALIGN_RIGHT,0);
+    const auto deadline=capacity_model::reset_deadline(m);
+    label(card,m.attention()?capacity_model::state_text(m)+" / prior value":capacity_model::reset_text(m,now),12,31,424,&lv_font_montserrat_14,m.attention()?AMBER:TEXT);
+    label(card,deadline.empty()?"Exact reset time not provided":deadline,12,50,424,&lv_font_montserrat_14,MUTED);
+    y+=80;
+  }
+  if (!y) close_detail(nullptr);
+}
+// Rows on the Home face open their provider's page.
+inline std::vector<std::string> tap_ids;
 inline void tap_clicked(lv_event_t* e) {
   const auto index = reinterpret_cast<uintptr_t>(lv_event_get_user_data(e));
-  if (index < tap_keys.size()) if (auto* m = find(tap_keys[index])) show_detail(*m);
+  if (index < tap_ids.size()) show_provider(tap_ids[index]);
 }
-inline lv_obj_t* tap_area(lv_obj_t* parent,int x,int y,int w,int h,const std::string& key,uint32_t bg=PANEL,int radius=12) {
-  auto* o=lv_obj_create(parent); box(o,x,y,w,h,bg,radius);
+inline lv_obj_t* tap_area(lv_obj_t* parent,int x,int y,int w,int h,const std::string& id) {
+  auto* o=lv_obj_create(parent); box(o,x,y,w,h);
   lv_obj_add_flag(o,LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_add_event_cb(o,tap_clicked,LV_EVENT_CLICKED,reinterpret_cast<void*>(uintptr_t(tap_keys.size())));
-  tap_keys.push_back(key);
+  lv_obj_set_style_bg_color(o,color(BORDER),LV_STATE_PRESSED);
+  lv_obj_add_event_cb(o,tap_clicked,LV_EVENT_CLICKED,reinterpret_cast<void*>(uintptr_t(tap_ids.size())));
+  tap_ids.push_back(id);
   return o;
 }
 inline void row_clicked(lv_event_t* e) {
@@ -127,7 +158,7 @@ inline void row_clicked(lv_event_t* e) {
 }
 inline void show_issues(lv_event_t*) {
   if (modal) lv_obj_delete(modal);
-  detail_key.clear();
+  detail_key.clear(); detail_provider.clear();
   modal=lv_obj_create(lv_layer_top());box(modal,0,0,480,480,BG,0);
   button(modal,"< Back",16,12,104,44,close_detail);
   auto* list=lv_obj_create(modal);box(list,16,77,448,387,BG,0);
@@ -286,97 +317,38 @@ inline void update_rows() {
     }
   }
 }
-// Rings: one arc per provider showing its tightest long-window limit, drawn
-// clockwise from 12 o'clock over three quarters of a circle. A violet dot on
-// each ring marks the time left in that limit's window on the same scale, so
-// an arc that reaches past its dot has capacity to spare and one that stops
-// short is being used faster than the window allows.
-inline void render_rings(const std::vector<capacity_model::Provider>& list, time_t now) {
-  constexpr int CX=224, CY=163, OUTER=148, PITCH=22, WIDTH=14;
-  const size_t count=std::min<size_t>(list.size(),5);
-  size_t tight=0;
-  for (size_t i=0;i<count;++i) {
-    const auto& p=list[i]; const auto& m=*p.primary; const int r=OUTER-int(i)*PITCH;
-    if (m.value<list[tight].primary->value) tight=i;
-    auto* arc=lv_arc_create(body); lv_obj_remove_style_all(arc);
-    lv_obj_remove_flag(arc,LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_set_pos(arc,CX-r-WIDTH/2,CY-r-WIDTH/2); lv_obj_set_size(arc,2*r+WIDTH,2*r+WIDTH);
-    lv_arc_set_rotation(arc,270); lv_arc_set_bg_angles(arc,0,270);
-    lv_arc_set_range(arc,0,100); lv_arc_set_value(arc,int(m.value));
-    for (auto part : {LV_PART_MAIN,LV_PART_INDICATOR}) {
-      lv_obj_set_style_arc_width(arc,WIDTH,part); lv_obj_set_style_arc_rounded(arc,true,part);
-      lv_obj_set_style_arc_opa(arc,LV_OPA_COVER,part);
-    }
-    lv_obj_set_style_arc_color(arc,color(TRACK),LV_PART_MAIN);
-    lv_obj_set_style_arc_color(arc,color(accent(m)),LV_PART_INDICATOR);
-    const int left=capacity_model::reset_percent(m,now);
-    if (left>=0) {
-      const double angle=left*270.0/100*3.14159265358979/180;
-      auto* dot=lv_obj_create(body);
-      box(dot,CX+int(std::lround(r*std::sin(angle)))-6,CY-int(std::lround(r*std::cos(angle)))-6,12,12,VIOLET,6);
-      lv_obj_set_style_border_color(dot,color(BG),0); lv_obj_set_style_border_width(dot,2,0);
-      lv_obj_remove_flag(dot,LV_OBJ_FLAG_CLICKABLE);
-    }
-    // Labels sit in the empty quarter, level with the start of their ring:
-    // provider, percent left, then the short-window limit if there is one.
-    const int y=CY-r-8;
-    auto* name=label(body,p.name,0,y,122,&lv_font_montserrat_14,MUTED);
-    lv_obj_set_style_text_align(name,LV_TEXT_ALIGN_RIGHT,0);
-    auto* value=label(body,std::to_string(int(m.value)),124,y,30,&lv_font_montserrat_14,accent(m)==CYAN?TEXT:accent(m));
-    lv_obj_set_style_text_align(value,LV_TEXT_ALIGN_RIGHT,0);
-    if (p.quick) label(body,capacity_model::window_name(p.quick->window_ms)+" "+std::to_string(int(p.quick->value)),160,y,50,&lv_font_montserrat_14,p.quick->value<=capacity_model::HOLD_PERCENT?RED:MUTED);
-  }
-  const auto& p=list[tight]; const auto& m=*p.primary;
-  const int inner=OUTER-int(count-1)*PITCH-WIDTH/2-4;
-  auto* hub=tap_area(body,CX-inner,CY-inner,2*inner,2*inner,m.key,BG,inner);
-  lv_obj_set_style_border_width(hub,0,0);
-  for (auto* text : {label(hub,p.name,0,inner-36,2*inner,&lv_font_montserrat_14,MUTED),
-                     label(hub,m.display,0,inner-19,2*inner,&lv_font_montserrat_32,accent(m)==CYAN?TEXT:accent(m)),
-                     label(hub,"left",0,inner+17,2*inner,&lv_font_montserrat_14,MUTED)})
-    lv_obj_set_style_text_align(text,LV_TEXT_ALIGN_CENTER,0);
-  auto* dot=lv_obj_create(body); box(dot,352,2,12,12,VIOLET,6); lv_obj_set_style_border_width(dot,0,0);
-  lv_obj_remove_flag(dot,LV_OBJ_FLAG_CLICKABLE);
-  label(body,"time left",370,0,78,&lv_font_montserrat_14,MUTED);
-  label(body,"Tightest",0,272,108,&lv_font_montserrat_14,MUTED);
-  auto* what=label(body,m.label,0,290,134,&lv_font_montserrat_14);
-  lv_label_set_long_mode(what,LV_LABEL_LONG_WRAP); lv_obj_set_height(what,34);
+// Home: one row per provider with two fixed columns, the short window
+// (session, 5-hour or daily) and the long one (weekly). Each cell shows percent
+// remaining, the window and its reset countdown, and a bar. The violet tick on
+// the bar is the time left in the window on the same scale: a bar that reaches
+// past its tick has capacity to spare, one that stops short is running ahead
+// of the clock. A provider with no short window leaves that cell empty.
+inline void home_cell(lv_obj_t* card,int x,const Metric& m,time_t now) {
+  constexpr int W=156;
+  label(card,m.display,x,5,100,&lv_font_montserrat_32,ink(m));
+  label(card,m.attention()?"prior":capacity_model::window_name(m.window_ms),x+104,8,52,&lv_font_montserrat_14,m.attention()?AMBER:MUTED);
   const bool timed=m.reset && now>1700000000;
-  auto* when=label(body,timed?(m.reset>now?"Resets in":"Reset"):"Reset time",340,272,108,&lv_font_montserrat_14,MUTED);
-  auto* span=label(body,timed?(m.reset>now?capacity_model::duration(m.reset-now):"due"):"unknown",320,290,128,&lv_font_montserrat_18);
-  for (auto* text : {when,span}) lv_obj_set_style_text_align(text,LV_TEXT_ALIGN_RIGHT,0);
-}
-// Dispatch: where to send the next job. See capacity_model::dispatch for the order.
-inline void render_dispatch(const std::vector<capacity_model::Pick>& picks, time_t now) {
-  auto refill=[&](const Metric& m) {
-    return m.reset && now>1700000000 ? (m.reset>now?"refills in "+capacity_model::duration(m.reset-now):std::string("refill due")) : std::string("no reset time");
-  };
-  const auto& top=picks[0]; const auto& first=*top.provider.primary;
-  const uint32_t ink=top.hold?TEXT:BG;
-  // When even the best provider is on hold there is nothing to recommend, so
-  // the hero says so and every provider is listed below it.
-  lv_obj_t* hero;
-  if (top.hold) { hero=lv_obj_create(body); box(hero,0,0,448,100,PANEL,14); }
-  else hero=tap_area(body,0,0,448,100,first.key,CYAN,14);
-  label(hero,top.hold?"EVERYTHING IS ON HOLD":"SPEND FIRST",16,9,300,&lv_font_montserrat_14,top.hold?AMBER:ink);
-  label(hero,top.hold?std::string("Hold new work"):top.provider.name,16,27,270,&lv_font_montserrat_32,ink);
-  label(hero,top.hold?"Every plan has a limit at or under 10%":first.display+" left, "+refill(first),16,71,416,&lv_font_montserrat_14,ink);
-  if (!top.hold && top.spare>=0) {
-    char rate[24]; snprintf(rate,sizeof(rate),"%.1f%%",top.spare);
-    for (auto* text : {label(hero,rate,296,20,136,&lv_font_montserrat_24,ink),label(hero,"spare per hour",296,50,136,&lv_font_montserrat_14,ink)})
-      lv_obj_set_style_text_align(text,LV_TEXT_ALIGN_RIGHT,0);
+  label(card,!timed?"":m.reset>now?(m.reset-now<60?"<1m":capacity_model::duration(m.reset-now)):"due",x+104,25,52,&lv_font_montserrat_14);
+  bar(card,x,49,W,8,int(m.value),level(m));
+  const int left=capacity_model::reset_percent(m,now);
+  if (left>=0) {
+    auto* tick=lv_obj_create(card); box(tick,x+std::min(W-3,W*left/100),45,3,16,VIOLET,1);
+    lv_obj_set_style_border_width(tick,0,0); lv_obj_remove_flag(tick,LV_OBJ_FLAG_CLICKABLE);
   }
-  const size_t skip=top.hold?0:1;
-  for (size_t i=skip;i<picks.size();++i) {
-    const auto& pick=picks[i]; const auto& m=*pick.provider.primary;
-    auto* card=tap_area(body,0,108+int(i-skip)*54,448,50,m.key);
-    label(card,std::to_string(i+1),12,13,22,&lv_font_montserrat_20,MUTED);
-    label(card,pick.provider.name,40,5,180,&lv_font_montserrat_18);
-    auto* note=label(card,pick.hold?"On hold / "+m.display+" left":m.display+" / "+refill(m),222,8,214,&lv_font_montserrat_14,pick.hold?AMBER:MUTED);
-    lv_obj_set_style_text_align(note,LV_TEXT_ALIGN_RIGHT,0);
-    bar(card,40,36,396,5,int(m.value),accent(m));
-    // The hold line: at or under 10%, stop sending new work.
-    auto* hold=lv_obj_create(card); box(hold,40+396*int(capacity_model::HOLD_PERCENT)/100,33,2,11,AMBER,0);
-    lv_obj_set_style_border_width(hold,0,0); lv_obj_remove_flag(hold,LV_OBJ_FLAG_CLICKABLE);
+}
+inline void render_home(const std::vector<capacity_model::Provider>& list, time_t now) {
+  const int pitch=std::max(78,std::min(110,388/int(list.size())));
+  for (size_t i=0;i<list.size();++i) {
+    const auto& p=list[i];
+    auto* card=tap_area(body,0,int(i)*pitch,448,pitch-5,p.id);
+    label(card,p.name,12,8,96,&lv_font_montserrat_18);
+    // Scoped limits, such as a model-specific weekly cap, sit under the name.
+    for (size_t j=0;j<p.extras.size() && j<2;++j) {
+      const auto& m=*p.extras[j];
+      label(card,capacity_model::short_name(m)+" "+m.display,12,33+int(j)*17,88,&lv_font_montserrat_14,level(m)==CYAN?MUTED:level(m));
+    }
+    if (p.quick) home_cell(card,112,*p.quick,now);
+    if (p.main) home_cell(card,280,*p.main,now);
   }
 }
 inline void message(const std::string& title,const std::string& detail) {
@@ -392,14 +364,14 @@ inline void render() {
     selected = capacity_model::select(snapshot,"quota");
     for (const auto* m : capacity_model::select(snapshot,"credit")) selected.push_back(m);
     for (const auto* m : selected) key += ":"+m->key;
-  } else if (view == RINGS || view == DISPATCH) {
-    // These faces are redrawn only when something they show has changed, or
-    // every ten minutes so countdowns and the time-left dots keep moving.
+  } else if (view == HOME) {
+    // Redrawn only when something it shows has changed, or once a minute so
+    // the countdowns and time ticks keep moving.
     for (const auto& m : snapshot.metrics) key += ":"+m.key+"="+std::to_string(int(m.value))+m.state+std::to_string((long long)m.reset);
-    key += ":"+std::to_string((long long)(now/600));
+    key += ":"+std::to_string((long long)(now/60));
   }
   if (layout_key != key) {
-    layout_key = key; rows.clear(); tap_keys.clear(); brightness_label = nullptr; rotation_label=nullptr;
+    layout_key = key; rows.clear(); tap_ids.clear(); brightness_label = nullptr; rotation_label=nullptr;
     lv_obj_clean(body); lv_obj_scroll_to_y(body,0,LV_ANIM_OFF);
     if (view == SETTINGS) render_settings();
     else if (!have_data) message("Connecting to your data","Waiting for the collector's snapshot.");
@@ -427,10 +399,9 @@ inline void render() {
     } else {
       const auto list = capacity_model::providers(snapshot);
       if (list.empty()) message("No limits to show","The collector has not reported any limits yet.");
-      else if (view == RINGS) render_rings(list,now);
-      else render_dispatch(capacity_model::dispatch(snapshot,now),now);
+      else render_home(list,now);
     }
-    for (int i=0;i<4;++i) {
+    for (int i=0;i<3;++i) {
       lv_obj_set_style_bg_color(nav[i],color(i==view?CYAN:PANEL),0);
       auto* l=lv_obj_get_child(nav[i],0);lv_obj_set_style_text_color(l,color(i==view?BG:MUTED),0);
     }
@@ -478,7 +449,7 @@ inline bool accept_snapshot(JsonObject root) {
     const auto key=detail_key;
     if (const auto* m=find(key)) show_detail(*m);
     else close_detail(nullptr);
-  }
+  } else if (modal && !detail_provider.empty()) { const auto id=detail_provider; show_provider(id); }
   return true;
 }
 inline void set_brightness_level(float value) {
@@ -489,18 +460,19 @@ inline void set_brightness_level(float value) {
 inline void begin(std::function<void()> refresh, std::function<void(float)> set_brightness) {
   refresh_action=std::move(refresh);brightness_action=std::move(set_brightness);
   auto* root=lv_screen_active();box(root,0,0,480,480,BG,0);
-  label(root,"Capacity",16,15,310,&lv_font_montserrat_24);
-  refresh_button=button(root,"Refresh",368,10,96,44,refresh_clicked);
-  issues_button=button(root,"Issues",174,10,136,44,show_issues);
+  // A thin status line, the body, then one row of buttons: three views, the
+  // issues button (shown only when there are issues) and Refresh.
+  status=label(root,"Connecting...",16,7,448,&lv_font_montserrat_14,MUTED);
+  body=lv_obj_create(root);box(body,16,30,448,388,BG,0);lv_obj_set_style_border_width(body,0,0);
+  lv_obj_add_flag(body,LV_OBJ_FLAG_SCROLLABLE);lv_obj_set_scroll_dir(body,LV_DIR_VER);
+  lv_obj_set_scrollbar_mode(body,LV_SCROLLBAR_MODE_AUTO);
+  const char* names[]={"Home","Limits","Settings"};
+  for (int i=0;i<3;++i) nav[i]=button(root,names[i],16+i*91,426,84,44,navigate,reinterpret_cast<void*>(uintptr_t(i)));
+  issues_button=button(root,"Issues",16+3*91,426,84,44,show_issues);
   lv_obj_set_style_bg_color(issues_button,color(0x3a291a),0);
   lv_obj_set_style_text_color(lv_obj_get_child(issues_button,0),color(AMBER),0);
   lv_obj_add_flag(issues_button,LV_OBJ_FLAG_HIDDEN);
-  status=label(root,"Connecting...",16,57,448,&lv_font_montserrat_14,MUTED);
-  body=lv_obj_create(root);box(body,16,85,448,326,BG,0);lv_obj_set_style_border_width(body,0,0);
-  lv_obj_add_flag(body,LV_OBJ_FLAG_SCROLLABLE);lv_obj_set_scroll_dir(body,LV_DIR_VER);
-  lv_obj_set_scrollbar_mode(body,LV_SCROLLBAR_MODE_AUTO);
-  const char* names[]={"Rings","Dispatch","Limits","Settings"};
-  for (int i=0;i<4;++i) nav[i]=button(root,names[i],12+i*116,424,108,44,navigate,reinterpret_cast<void*>(uintptr_t(i)));
+  refresh_button=button(root,"Refresh",16+4*91,426,84,44,refresh_clicked);
   render();
 }
 }

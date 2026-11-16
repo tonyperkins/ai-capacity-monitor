@@ -99,27 +99,41 @@ inline bool parse(JsonObjectConst root, Snapshot& output) {
   output = std::move(next);
   return true;
 }
-// --- Provider summaries, used by the Rings and Dispatch faces ---------------
+inline std::vector<const Metric*> select(const Snapshot& snapshot, const char* kind) {
+  std::vector<const Metric*> out;
+  for (const auto& m : snapshot.metrics) if (m.kind == kind) out.push_back(&m);
+  return out;
+}
+// --- Provider summaries, used by the Home face ------------------------------
 // Limits are whatever the collector reports, so a provider is summarised by
 // rule, never by a list of expected names:
-//   primary = its tightest long-window limit (a week or more, or no stated window)
-//   quick   = its tightest short-window limit (session, 5-hour, daily), if any
+//   quick  = its first short-window limit (session, 5-hour, daily), if any
+//   main   = its first long-window limit (a week or more, or no stated window)
+//            that does not count toward another limit
+//   extras = its other long-window limits, such as a model-specific weekly cap
+// "First" is the order the provider reports them in.
 constexpr uint64_t LONG_WINDOW_MS = 6ULL*24*60*60*1000;
-constexpr double HOLD_PERCENT = 10;  // at or under this, stop sending new work
-struct Provider { std::string id, name; const Metric* primary = nullptr; const Metric* quick = nullptr; };
+constexpr double LOW_PERCENT = 25, HOLD_PERCENT = 10;
+struct Provider {
+  std::string id, name;
+  const Metric* quick = nullptr; const Metric* main = nullptr;
+  std::vector<const Metric*> extras;
+};
 inline bool long_window(const Metric& m) { return m.window_ms == 0 || m.window_ms >= LONG_WINDOW_MS; }
+inline const std::string& provider_id(const Metric& m) { return m.provider_id.empty() ? m.provider : m.provider_id; }
 // Pointers stay valid only while the snapshot is unchanged.
 inline std::vector<Provider> providers(const Snapshot& snapshot) {
   std::vector<Provider> out;
   for (const auto& m : snapshot.metrics) {
     if (m.kind != "quota" || m.unlimited) continue;
-    const std::string& id = m.provider_id.empty() ? m.provider : m.provider_id;
+    const std::string& id = provider_id(m);
     auto it = std::find_if(out.begin(), out.end(), [&](const Provider& p) { return p.id == id; });
     if (it == out.end()) { out.push_back({id, m.provider}); it = out.end()-1; }
-    auto*& slot = long_window(m) ? it->primary : it->quick;
-    if (!slot || m.value < slot->value) slot = &m;
+    if (!long_window(m)) { if (!it->quick) it->quick = &m; }
+    else if (!it->main && m.parent.empty()) it->main = &m;
+    else it->extras.push_back(&m);
   }
-  for (auto& p : out) if (!p.primary) { p.primary = p.quick; p.quick = nullptr; }
+  for (auto& p : out) if (!p.main && !p.extras.empty()) { p.main = p.extras.front(); p.extras.erase(p.extras.begin()); }
   return out;
 }
 inline std::string window_name(uint64_t ms) {
@@ -130,38 +144,13 @@ inline std::string window_name(uint64_t ms) {
   snprintf(out, sizeof(out), hours < 24 ? "%lluh" : "%llud", (unsigned long long)(hours < 24 ? hours : hours/24));
   return out;
 }
-// Dispatch order: where to send the next job. Capacity that expires soonest
-// unused ranks first (percent left per hour until its reset). Providers whose
-// reading is stale come after fresh ones, and providers on hold come last.
-struct Pick { Provider provider; double spare = -1; bool hold = false; };
-inline std::vector<Pick> dispatch(const Snapshot& snapshot, time_t now) {
-  std::vector<Pick> out;
-  for (const auto& p : providers(snapshot)) {
-    Pick pick; pick.provider = p;
-    const auto& m = *p.primary;
-    pick.hold = m.value <= HOLD_PERCENT || (p.quick && p.quick->value <= HOLD_PERCENT);
-    if (m.reset && now > 1700000000 && m.reset > now) pick.spare = m.value / std::max(1.0, double(m.reset-now)/3600);
-    out.push_back(pick);
-  }
-  std::stable_sort(out.begin(), out.end(), [](const Pick& a, const Pick& b) {
-    if (a.hold != b.hold) return !a.hold;
-    const bool stale_a = a.provider.primary->attention(), stale_b = b.provider.primary->attention();
-    if (stale_a != stale_b) return !stale_a;
-    if ((a.spare >= 0) != (b.spare >= 0)) return a.spare >= 0;
-    if (a.spare >= 0 && a.spare != b.spare) return a.spare > b.spare;
-    return a.provider.primary->value > b.provider.primary->value;
-  });
-  return out;
-}
-inline std::vector<const Metric*> select(const Snapshot& snapshot, const char* kind, bool prioritize = false) {
-  std::vector<const Metric*> out;
-  for (const auto& m : snapshot.metrics) if (m.kind == kind) out.push_back(&m);
-  if (prioritize) std::stable_sort(out.begin(), out.end(), [](const Metric* a, const Metric* b) {
-    if (a->attention() != b->attention()) return a->attention();
-    if (a->unlimited != b->unlimited) return !a->unlimited;
-    return a->value < b->value;
-  });
-  return out;
+// A one-word name for a scoped limit: "Current week (Fable)" -> "Fable",
+// group "Gemini 4 Argon" -> "Argon".
+inline std::string short_name(const Metric& m) {
+  const auto open = m.label.rfind('('), close = m.label.rfind(')');
+  if (open != std::string::npos && close != std::string::npos && close > open+1) return m.label.substr(open+1, close-open-1);
+  if (!m.group.empty()) { const auto space = m.group.rfind(' '); return space == std::string::npos ? m.group : m.group.substr(space+1); }
+  return m.label;
 }
 inline std::string duration(uint64_t seconds) {
   char out[40];

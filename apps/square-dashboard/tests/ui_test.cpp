@@ -14,11 +14,6 @@ static void shot(lv_display_t* display,const char* name) {
   std::ofstream out(std::string(name)+".ppm",std::ios::binary);out<<"P6\n480 480\n255\n";
   for(auto p:pixels) { char c[]={char(((p>>11)&31)*255/31),char(((p>>5)&63)*255/63),char((p&31)*255/31)};out.write(c,3); }
 }
-static int count_type(lv_obj_t* parent,const lv_obj_class_t* type) {
-  int n=0;
-  for(uint32_t i=0;i<lv_obj_get_child_count(parent);++i) if(lv_obj_check_type(lv_obj_get_child(parent,i),type)) ++n;
-  return n;
-}
 int main() {
   using namespace capacity_model;
   assert(epoch("2026-11-14T20:00:00Z")==1794686400);
@@ -74,22 +69,21 @@ int main() {
     assert(!parse(junk.as<JsonObject>(),parsed));assert(parsed.metrics.size()==13);
     junk["version"]="2";assert(!parse(junk.as<JsonObject>(),parsed)); }
   assert(parse(doc.as<JsonObject>(),parsed));
-  // Provider summaries: tightest long-window limit, plus tightest short one.
+  // Provider summaries: first short-window limit, first long-window limit,
+  // and the remaining long-window limits as extras.
   const auto list=providers(parsed);
   assert(list.size()==5);
-  assert(list[0].id=="claude" && list[0].name=="Claude" && list[0].primary->key=="claude/fable" && list[0].quick->key=="claude/session");
-  assert(list[1].primary->key=="chatgpt/weekly" && list[1].quick->key=="chatgpt/5h");
-  assert(list[2].primary->key=="gemini/argon" && list[2].quick->key=="gemini/5h");
-  assert(list[3].primary->key=="grok/weekly" && list[3].quick==nullptr);
-  assert(list[4].primary->key=="devin/weekly" && list[4].quick->key=="devin/daily");
+  assert(list[0].id=="claude" && list[0].name=="Claude" && list[0].quick->key=="claude/session" && list[0].main->key=="claude/week");
+  assert(list[0].extras.size()==1 && list[0].extras[0]->key=="claude/fable" && short_name(*list[0].extras[0])=="Fable");
+  assert(list[1].quick->key=="chatgpt/5h" && list[1].main->key=="chatgpt/weekly" && list[1].extras.empty());
+  assert(list[2].quick->key=="gemini/5h" && list[2].main->key=="gemini/models-weekly");
+  assert(list[2].extras.size()==1 && list[2].extras[0]->key=="gemini/argon" && short_name(*list[2].extras[0])=="Argon");
+  assert(list[3].quick==nullptr && list[3].main->key=="grok/weekly");
+  assert(list[4].quick->key=="devin/daily" && list[4].main->key=="devin/weekly");
   assert(window_name(5*3600000ULL)=="5h" && window_name(24*3600000ULL)=="day" && window_name(168*3600000ULL)=="7d" && window_name(0).empty());
-  // Dispatch: most spare capacity per hour first; Devin's daily quota is under the hold line.
-  auto order=[&](const Snapshot& s) { std::string out; for(const auto& pick : dispatch(s,base)) out+=pick.provider.id+(pick.hold?"(hold) ":" "); return out; };
-  assert(order(parsed)=="chatgpt grok claude gemini devin(hold) ");
-  const auto picks=dispatch(parsed,base);
-  assert(std::abs(picks[0].spare-66.0/84)<0.01);
-  { Snapshot no_clock=parsed; for(auto& m : no_clock.metrics) if(m.key=="chatgpt/weekly") m.reset=0;
-    assert(order(no_clock)=="grok claude gemini chatgpt devin(hold) "); }
+  // A provider whose only long-window limit is scoped still gets a main limit.
+  { Snapshot scoped=parsed; scoped.metrics.erase(scoped.metrics.begin()+1);
+    const auto again=providers(scoped); assert(again[0].main->key=="claude/fable" && again[0].extras.empty()); }
   Metric timed;timed.kind="quota";timed.state="validated";timed.reset=epoch("2026-11-15T22:00:00Z");timed.window_ms=604800000;
   assert(reset_percent(timed,timed.reset)==0);
   assert(reset_percent(timed,0)==-1);
@@ -107,35 +101,28 @@ int main() {
   int refreshes=0;float brightness=0;
   capacity_ui::begin([&]{++refreshes;},[&](float v){brightness=v;});
   shot(display,"connecting");
-  // Rings: one arc per provider; the hub opens the tightest limit.
+  // Home: one row per provider, all visible without scrolling.
   assert(capacity_ui::accept_snapshot(doc.as<JsonObject>()));
-  assert(capacity_ui::view==capacity_ui::RINGS && capacity_ui::rows.empty());
-  assert(count_type(capacity_ui::body,&lv_arc_class)==5);
-  assert(capacity_ui::tap_keys.size()==1 && capacity_ui::tap_keys[0]=="gemini/argon");
-  shot(display,"rings");
-  lv_obj_t* hub=nullptr;
-  for(uint32_t i=0;i<lv_obj_get_child_count(capacity_ui::body);++i) {
-    auto* child=lv_obj_get_child(capacity_ui::body,i);
-    if(lv_obj_has_flag(child,LV_OBJ_FLAG_CLICKABLE)) {assert(!hub);hub=child;}
-  }
-  assert(hub && lv_obj_get_width(hub)>=44);
-  lv_obj_send_event(hub,LV_EVENT_CLICKED,nullptr);
-  assert(capacity_ui::modal && capacity_ui::detail_key=="gemini/argon");shot(display,"detail");capacity_ui::close_detail(nullptr);
+  assert(capacity_ui::view==capacity_ui::HOME && capacity_ui::rows.empty());
+  assert(capacity_ui::tap_ids==(std::vector<std::string>{"claude","chatgpt","gemini","grok","devin"}));
+  assert(lv_obj_get_child_count(capacity_ui::body)==5);
+  lv_obj_update_layout(capacity_ui::body);assert(lv_obj_get_scroll_bottom(capacity_ui::body)<=0);
+  shot(display,"home");
+  // Grok has no short window, so its row has fewer children than Claude's.
+  assert(lv_obj_get_child_count(lv_obj_get_child(capacity_ui::body,3))<lv_obj_get_child_count(lv_obj_get_child(capacity_ui::body,0)));
+  // A row opens every reading of that provider.
+  lv_obj_send_event(lv_obj_get_child(capacity_ui::body,2),LV_EVENT_CLICKED,nullptr);
+  assert(capacity_ui::modal && capacity_ui::detail_provider=="gemini" && capacity_ui::detail_key.empty());shot(display,"provider");
+  assert(capacity_ui::accept_snapshot(doc.as<JsonObject>()));assert(capacity_ui::modal && capacity_ui::detail_provider=="gemini");
+  capacity_ui::close_detail(nullptr);assert(capacity_ui::detail_provider.empty());
   // An unchanged snapshot does not redraw the face; a changed value does.
   auto* first_before=lv_obj_get_child(capacity_ui::body,0);
+  const auto key_before=capacity_ui::layout_key;
   assert(capacity_ui::accept_snapshot(doc.as<JsonObject>()));
-  assert(lv_obj_get_child(capacity_ui::body,0)==first_before);
-  capacity_ui::tick();assert(lv_obj_get_child(capacity_ui::body,0)==first_before);
+  if(capacity_ui::layout_key==key_before) assert(lv_obj_get_child(capacity_ui::body,0)==first_before);
   doc["metrics"][8]["value"]=40;assert(capacity_ui::accept_snapshot(doc.as<JsonObject>()));
-  assert(capacity_ui::tap_keys[0]=="grok/weekly");
+  assert(capacity_ui::layout_key!=key_before);
   doc["metrics"][8]["value"]=50;assert(capacity_ui::accept_snapshot(doc.as<JsonObject>()));
-  // Dispatch: hero plus one row per remaining provider, in dispatch order.
-  lv_obj_send_event(capacity_ui::nav[capacity_ui::DISPATCH],LV_EVENT_CLICKED,nullptr);
-  assert(capacity_ui::tap_keys==(std::vector<std::string>{"chatgpt/weekly","grok/weekly","claude/fable","gemini/argon","devin/weekly"}));
-  assert(lv_obj_get_scroll_bottom(capacity_ui::body)<=0);
-  shot(display,"dispatch");
-  lv_obj_send_event(lv_obj_get_child(capacity_ui::body,1),LV_EVENT_CLICKED,nullptr);
-  assert(capacity_ui::modal && capacity_ui::detail_key=="grok/weekly");capacity_ui::close_detail(nullptr);
   // Limits: every reading, quotas first, then balances.
   lv_obj_send_event(capacity_ui::nav[capacity_ui::LIMITS],LV_EVENT_CLICKED,nullptr);
   assert(capacity_ui::rows.size()==13);shot(display,"limits");assert(lv_obj_get_scroll_bottom(capacity_ui::body)>0);
@@ -179,28 +166,28 @@ int main() {
   lv_obj_send_event(capacity_ui::refresh_button,LV_EVENT_CLICKED,nullptr);assert(refreshes==1);
   capacity_ui::set_busy(true);assert(lv_obj_has_state(capacity_ui::refresh_button,LV_STATE_DISABLED));
   capacity_ui::connection_failed();assert(!capacity_ui::online);assert(capacity_ui::snapshot.metrics.size()==13);
-  lv_obj_send_event(capacity_ui::nav[capacity_ui::RINGS],LV_EVENT_CLICKED,nullptr);
+  lv_obj_send_event(capacity_ui::nav[capacity_ui::HOME],LV_EVENT_CLICKED,nullptr);
   assert(std::string(lv_label_get_text(capacity_ui::status)).find("Offline")!=std::string::npos);
-  // A source the collector could not read keeps its last values, flagged, and
-  // drops behind freshly read providers in the dispatch order.
+  // A source the collector could not read keeps its last values, flagged.
   doc["diagnostics"][0]["key"]="chatgpt/weekly";doc["diagnostics"][0]["state"]="retained-prior";
   doc["issues"][0]="ChatGPT: could not read this time (timeout); showing the last values.";
   assert(capacity_ui::accept_snapshot(doc.as<JsonObject>()));shot(display,"attention");
   assert(!lv_obj_has_flag(capacity_ui::issues_button,LV_OBJ_FLAG_HIDDEN));
   assert(std::string(lv_label_get_text(lv_obj_get_child(capacity_ui::issues_button,0)))=="2 issues");
-  lv_obj_send_event(capacity_ui::nav[capacity_ui::DISPATCH],LV_EVENT_CLICKED,nullptr);
-  assert(capacity_ui::tap_keys[0]=="grok/weekly" && capacity_ui::tap_keys[3]=="chatgpt/weekly");
   lv_obj_send_event(capacity_ui::nav[capacity_ui::LIMITS],LV_EVENT_CLICKED,nullptr);
   assert(std::string(lv_label_get_text(capacity_ui::rows[4].note))=="Previous reading / prior value");
   lv_obj_send_event(capacity_ui::issues_button,LV_EVENT_CLICKED,nullptr);assert(capacity_ui::modal);shot(display,"issues");capacity_ui::close_detail(nullptr);
-  // Everything on hold: the hero says so instead of recommending a provider.
-  { JsonDocument low;low["version"]="1";low["collectedAt"]=iso(-60);auto m=low["metrics"].to<JsonArray>().add<JsonObject>();
-    m["key"]="solo/weekly";m["provider"]="Solo";m["label"]="Weekly limit";m["kind"]="quota";m["unit"]="percent";m["value"]=4;m["status"]="verified";m["readState"]="validated";
-    auto keep=capacity_ui::snapshot;
-    lv_obj_send_event(capacity_ui::nav[capacity_ui::DISPATCH],LV_EVENT_CLICKED,nullptr);
-    assert(capacity_ui::accept_snapshot(low.as<JsonObject>()));assert(capacity_ui::tap_keys.size()==1);shot(display,"dispatch-hold");
-    lv_obj_send_event(capacity_ui::nav[capacity_ui::RINGS],LV_EVENT_CLICKED,nullptr);
-    assert(count_type(capacity_ui::body,&lv_arc_class)==1);shot(display,"rings-one");
+  // Fewer providers get taller rows; more than five scroll.
+  { JsonDocument few;few["version"]="1";few["collectedAt"]=iso(-60);auto items=few["metrics"].to<JsonArray>();
+    auto one=[&](const std::string& id,double value) { auto m=items.add<JsonObject>();
+      m["key"]=id+"/weekly";m["provider"]=id;m["label"]="Weekly limit";m["kind"]="quota";m["unit"]="percent";m["value"]=value;m["status"]="verified";m["readState"]="validated";m["resetWindowMs"]=604800000LL;m["resetAt"]=iso(2*D); };
+    one("Solo",4);one("Duo",20);
+    lv_obj_send_event(capacity_ui::nav[capacity_ui::HOME],LV_EVENT_CLICKED,nullptr);
+    assert(capacity_ui::accept_snapshot(few.as<JsonObject>()));assert(capacity_ui::tap_ids.size()==2);shot(display,"home-two");
+    assert(lv_obj_get_height(lv_obj_get_child(capacity_ui::body,0))>100);
+    for(const char* id : {"C","D","E","F","G"}) one(id,60);
+    assert(capacity_ui::accept_snapshot(few.as<JsonObject>()));assert(capacity_ui::tap_ids.size()==7);
+    lv_obj_update_layout(capacity_ui::body);assert(lv_obj_get_scroll_bottom(capacity_ui::body)>0);
     assert(capacity_ui::accept_snapshot(doc.as<JsonObject>())); }
   // Recover a shifted and scaled, mirrored controller range from raw targets.
   std::array<capacity_touch::Point,5> raw;
@@ -241,5 +228,5 @@ int main() {
   assert(orientation==270 && capacity_ui::rotation_degrees==270 && rotation_saves==4);
   capacity_ui::configure_touch_calibration(calibrated.saved(),[&]{++prepared;},apply);
   assert(prepared==1 && capacity_ui::modal==nullptr);
-  std::cout<<"PASS: tolerant parsing, provider summaries, dispatch order, rings/dispatch/limits faces, detail, settings, refresh, offline retention and calibration\n";
+  std::cout<<"PASS: tolerant parsing, provider summaries, home/limits faces, provider and reading detail, settings, refresh, offline retention and calibration\n";
 }

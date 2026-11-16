@@ -62,8 +62,12 @@ Configuration is the `display` section of
 one the local bridge uses, so a provisioned display needs no change. Optional:
 
 ```json
-{ "collector": { "intervalMinutes": 10, "sources": { "devin": false } } }
+{ "collector": { "intervalMinutes": 10, "sources": { "devin": false }, "hide": ["Claude and GPT models"] } }
 ```
+
+`hide` leaves limits out of the snapshot. An entry matches a limit's key
+(`gemini/gemini-4-argon-weekly-limit`), its group or its label, ignoring case.
+Remove the entry to bring the limit back.
 
 `capacity-collector.service` is a systemd user unit, installed in
 `~/.config/systemd/user/` and enabled since 2026-11-15. It serves the same
