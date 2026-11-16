@@ -12,6 +12,7 @@ esphome:
     - -DLV_FONT_MONTSERRAT_20=1
     - -DLV_FONT_MONTSERRAT_24=1
     - -DLV_FONT_MONTSERRAT_32=1
+    - -DLV_USE_ARC=1
     - -DLV_USE_BAR=1
     - -DLV_USE_BUTTON=1
     - -DLV_USE_SLIDER=1
@@ -222,4 +223,4 @@ interval:
       - script.execute: fetch_snapshot
   - interval: 10s
     then:
-      - lambda: capacity_ui::update_status();
+      - lambda: capacity_ui::tick();

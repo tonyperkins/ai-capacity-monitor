@@ -1,5 +1,13 @@
 # AI Capacity Monitor
 
+> **Current state (2026-11-15):** the desk display is now fed by a small local
+> [collector](apps/collector/README.md) that reads subscription quota through
+> each vendor's own CLI. The Chrome extension and local bridge described below
+> are no longer used for it and are kept only until the collector has proven
+> itself. Start with [docs/STATUS.md](docs/STATUS.md).
+
+The rest of this page describes the original extension.
+
 AI Capacity Monitor is a Chrome extension for keeping the displayed credit
 balances and subscription limits you care about in one local popup. It reads
 only the provider pages you explicitly enable, remains useful without any
@@ -88,6 +96,7 @@ and secrets. See [SECURITY.md](SECURITY.md) for private vulnerability reports.
 
 ## Development
 
+- Collector: `node --test` in `apps/collector`; `node apps/collector/run.js --once` prints a live snapshot
 - Extension tests: `npm test --prefix apps/extension`
 - Package: `python3 scripts/package-extension.py`
 - CYD dashboard firmware: `pio run -d apps/cyd-dashboard`

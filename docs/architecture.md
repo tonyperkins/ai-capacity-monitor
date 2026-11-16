@@ -1,5 +1,35 @@
 # Architecture
 
+## Current: local collector
+
+Since 2026-11-15 the display is fed by `apps/collector`, not by the extension
+and bridge described in the rest of this page. See [STATUS.md](STATUS.md).
+
+- **Sources** (`apps/collector/sources/*.js`), one per subscription. Each
+  exports `id`, `name`, `read()` and a pure `parse()`. `read()` runs the
+  vendor's CLI (or, for Devin, one HTTPS request) and returns a list of limits:
+  `{ id, label, remaining, resetAt?, windowMs?, group?, parent? }`. The list is
+  whatever the provider reports; no source names the lines it expects.
+- **`collect.js`** runs every enabled source and builds a `snapshot.v1`
+  payload. A source that answers replaces its lines outright, so a limit that
+  went away disappears. A source that fails keeps its previous lines, marked
+  `retained-prior`, and adds an issue with a short reason code.
+- **`run.js`** collects on a timer (10 minutes by default), writes
+  `latest-snapshot.json`, and serves `GET /snapshot/v1` to the display with
+  the bearer token the bridge used.
+- **Credentials**: the collector holds none. Each CLI keeps its own login
+  fresh. The one exception is Devin, whose API key is read from Devin's own
+  credentials file at request time and never stored or logged.
+- **Display** (`apps/square-dashboard`): groups readings by `providerId` and
+  summarises each provider by rule (tightest long-window limit, tightest
+  short-window limit), so new or missing lines need no firmware change. A
+  reading it does not understand is skipped and reported as an issue.
+
+To add a subscription, add one file under `sources/` and list it in
+`SOURCES` in `collect.js`.
+
+## Earlier: extension and bridge
+
 The extension is the primary product and source of local truth. Provider adapters run in authenticated tabs, emit validated metric readings, and preserve the last verified reading when a page is unsettled or a reading is suspect. Adapters normally parse rendered page content; a narrowly scoped authenticated-response reader may supply the same card value when Chrome indefinitely throttles hidden-page rendering. Such readers validate a fixed response shape and emit only the normalized metric, never raw response data or account identifiers.
 
 The popup reads the local snapshot. Publishing is best-effort and must never block or degrade local use.

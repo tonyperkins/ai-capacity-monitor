@@ -28,6 +28,17 @@ next pass, and one that goes away disappears.
 If a source fails, its previous lines stay, marked as prior values, and the
 snapshot carries an issue naming the source and a short reason code.
 
+## Reason codes
+
+A failed source reports one of: `timeout`, `cli-not-found`, `spawn-failed`,
+`exit-N`, `cli-exited`, `rpc-error`, `bad-output`, `not-signed-in`,
+`unreachable`, `http-N`. For `not-signed-in`, run that vendor's CLI once
+by hand so it renews its login; the collector never does this itself.
+
+The service needs the CLIs on its `PATH`. They are installed with mise, so the
+unit adds `~/.local/share/mise/command-wrappers/bin` and the Antigravity
+install folder. `journalctl --user -u capacity-collector.service` shows each pass.
+
 ## Output
 
 The service writes and serves the `snapshot.v1` shape in `packages/contract`,
@@ -54,6 +65,8 @@ one the local bridge uses, so a provisioned display needs no change. Optional:
 { "collector": { "intervalMinutes": 10, "sources": { "devin": false } } }
 ```
 
-`capacity-collector.service` is a systemd user unit. It serves the same port
-as the local bridge, so stop `ai-capacity-collector.service` (the bridge)
-before starting it.
+`capacity-collector.service` is a systemd user unit, installed in
+`~/.config/systemd/user/` and enabled since 2026-11-15. It serves the same
+port as the local bridge, so the bridge (`ai-capacity-collector.service`,
+despite its name) is stopped and disabled. Rollback steps and the history of
+what was tried are in [docs/STATUS.md](../../docs/STATUS.md).

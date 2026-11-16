@@ -17,6 +17,28 @@ and every consumer (bridge, dashboard, user webhooks) validates against it.
   payloads whose `version` they do not support with a clear error rather
   than guessing.
 
+## Optional fields added by the collector
+
+All additive; a consumer that does not know them ignores them.
+
+- Metric `providerId`: stable lowercase id of the subscription (`claude`,
+  `chatgpt`, `gemini`, `grok`, `devin`). Use it to group a provider's limits.
+  `provider` remains the display name.
+- Metric `group`: the provider's own grouping of a limit, for example an
+  Antigravity quota group.
+- Metric `parent`: `key` of the limit this one counts toward. Claude's
+  "Current week (Fable)" has the all-models weekly limit as its parent.
+- Top-level `sources`: per-source state for the pass, `{ "<id>": "<state>" }`.
+
+Metric keys from the collector are `<providerId>/<limit id>`. They are stable
+while the provider's label is, and are not a fixed list: limits appear and
+disappear with what the provider reports. Consumers should group by
+`providerId` and never depend on a particular key being present.
+
+A consumer should skip a metric it cannot interpret and keep the rest of the
+snapshot. The square display does this; the local bridge validator still
+rejects the whole payload, and is retired.
+
 ## Value conventions (v1)
 
 - `kind: "credit"` with `unit: "usd"`: integer minor units (cents).

@@ -1,5 +1,21 @@
 # Support matrix
 
+## Collector (current)
+
+Subscription quota only. Lines are whatever each provider reports at the time.
+
+| Subscription | Read through | Lines seen on 2026-11-15 |
+| --- | --- | --- |
+| Claude | `claude -p "/usage"` | Current session; Current week (all models); Current week (Fable) |
+| ChatGPT | `codex app-server` | 5-hour limit; Weekly limit |
+| Gemini (Antigravity) | `agy --print "/quota"` | Weekly and five-hour limits for each quota group (Gemini Models, Claude and GPT models, Gemini 4 Argon) |
+| Grok (X subscription) | `grok agent stdio` | Weekly limit |
+| Devin | Plan-status request | Daily quota; Weekly quota |
+
+Not collected: credit balances (planned for a v2) and Kilo (dropped).
+
+## Extension (earlier, no longer used for the display)
+
 Capacity Monitor reads only the listed displayed values. A provider must be
 enabled and signed in before collection.
 
