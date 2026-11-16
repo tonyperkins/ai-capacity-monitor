@@ -34,16 +34,16 @@ function stateMarkup(state, errorCode) {
   return `<small class="read-state" title="${escapeHtml(title)}"><i aria-hidden="true">●</i>${escapeHtml(stateText[state])}</small>`;
 }
 
-function render(metrics = [], metricStates = {}, enabledKeys = null) {
+function render(metrics = [], metricStates = {}, enabledKeys = null, unavailableMetricKeys = []) {
   const byKey = Object.fromEntries(metrics.map((metric) => [metric.key, metric]));
-  const visibleBalances = enabledKeys ? balanceOrder.filter((key) => enabledKeys.has(key)) : balanceOrder;
-  const visibleQuotas = enabledKeys ? quotaOrder.filter((key) => enabledKeys.has(key)) : quotaOrder;
+  const visibleBalances = balanceOrder.filter((key) => (!enabledKeys || enabledKeys.has(key)) && !unavailableMetricKeys.includes(key));
+  const visibleQuotas = quotaOrder.filter((key) => (!enabledKeys || enabledKeys.has(key)) && !unavailableMetricKeys.includes(key));
   $("balances").innerHTML = visibleBalances.map((key) => {
     const definition = metricDefinitions[key];
     const metric = byKey[key];
     const diagnostic = metricStates[key];
     const state = stateFor(metric, diagnostic);
-    const provider = escapeHtml(metric?.provider ?? definition.provider);
+    const provider = escapeHtml(definition.provider);
     const display = escapeHtml(formatMetric(metric));
     const title = state === "validated" ? `Open ${provider}` : `${stateText[state]}. ${diagnostic?.errorCode ?? "Open the provider page for details."}`;
     const accessibleName = `${provider} ${display}. ${stateText[state]}. Activate to open provider.`;
@@ -54,8 +54,8 @@ function render(metrics = [], metricStates = {}, enabledKeys = null) {
     const metric = byKey[key];
     const diagnostic = metricStates[key];
     const state = stateFor(metric, diagnostic);
-    const provider = escapeHtml(metric?.provider ?? definition.provider);
-    const label = escapeHtml(metric?.label ?? definition.label);
+    const provider = escapeHtml(definition.provider);
+    const label = escapeHtml(definition.label);
     const display = escapeHtml(formatMetric(metric));
     const isUnlimited = metric?.availability === "unlimited";
     const resetText = metric?.resetText ? escapeHtml(metric.resetText) : "";
@@ -64,7 +64,7 @@ function render(metrics = [], metricStates = {}, enabledKeys = null) {
     const timeMeter = timePercent === null ? "" : `<div class="time-meter" role="progressbar" aria-label="Time remaining until reset" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(timePercent)}" aria-valuetext="${resetText || "Time remaining until reset"}"><i style="width:${timePercent}%"></i></div>`;
     const title = state === "validated" ? `Open ${provider}` : `${stateText[state]}. ${diagnostic?.errorCode ?? "Open the provider page for details."}`;
     const accessibleName = `${provider}, ${label}: ${display}${metric && !isUnlimited ? " remaining" : ""}. ${resetText || stateText[state]}. Activate to open provider.`;
-    return `<article class="quota provider-link state-${state}" data-key="${key}" tabindex="0" role="button" aria-label="${escapeHtml(accessibleName)}" title="${escapeHtml(title)}"><div class="quota-top"><div><span>${provider} · ${label}</span>${resetText ? `<small>${resetText}</small>` : stateMarkup(state, diagnostic?.errorCode ?? metric?.errorCode)}</div><strong aria-hidden="true">${display}${metric && !isUnlimited ? " remaining" : ""}</strong></div>${meter}${timeMeter}</article>`;
+    return `<article class="quota provider-link state-${state}" data-key="${key}" tabindex="0" role="button" aria-label="${escapeHtml(accessibleName)}" title="${escapeHtml(title)}"><div class="quota-top"><div><span>${provider} · ${label}</span>${resetText ? `<small>${resetText}</small>` : ""}${stateMarkup(state, diagnostic?.errorCode ?? metric?.errorCode)}</div><strong aria-hidden="true">${display}${metric && !isUnlimited ? " remaining" : ""}</strong></div>${meter}${timeMeter}</article>`;
   }).join("");
   document.querySelectorAll(".provider-link").forEach((item) => {
     item.addEventListener("click", (event) => { if (!event.target.closest(".card-refresh")) focusProvider(item.dataset.key); });
@@ -81,12 +81,13 @@ async function focusProvider(key) {
 }
 
 async function load() {
-  const data = await chrome.storage.local.get(["latestMetrics", "metricStates", "lastCollectedAt", "closeOpenedTabs", "autoCollectionEnabled", "enabledProviders", "onboardingCompleted"]);
+  const data = await chrome.storage.local.get(["latestMetrics", "metricStates", "lastCollectedAt", "closeOpenedTabs", "autoCollectionEnabled", "enabledProviders", "onboardingCompleted", "unavailableMetricKeys", "showClaudeMonthlySpendingCap"]);
   const enabledIds = data.enabledProviders ?? [];
   const enabledKeys = new Set(PROVIDERS.filter((provider) => enabledIds.includes(provider.id)).flatMap((provider) => provider.metrics.map((metric) => metric.key)));
+  if (data.showClaudeMonthlySpendingCap === false) enabledKeys.delete("claude-usage-cap");
   const visibleMetrics = (data.latestMetrics ?? []).filter((metric) => enabledKeys.has(metric.key));
   const visibleStates = Object.fromEntries(Object.entries(data.metricStates ?? {}).filter(([key]) => enabledKeys.has(key)));
-  render(visibleMetrics, visibleStates, enabledKeys);
+  render(visibleMetrics, visibleStates, enabledKeys, data.unavailableMetricKeys ?? []);
   $("close-opened-tabs").checked = Boolean(data.closeOpenedTabs);
   $("auto-updates").checked = data.autoCollectionEnabled !== false;
   // This is the time the collection pass finished, not the age of every
@@ -122,7 +123,7 @@ async function refreshProvider(button) {
 $("auto-updates").addEventListener("change", (event) => chrome.storage.local.set({ autoCollectionEnabled: event.target.checked }));
 $("close-opened-tabs").addEventListener("change", (event) => chrome.storage.local.set({ closeOpenedTabs: event.target.checked }));
 $("settings").addEventListener("click", () => chrome.runtime.openOptionsPage());
-chrome.storage.onChanged.addListener((changes, area) => { if (area === "local" && ["latestMetrics", "metricStates", "lastCollectedAt", "autoCollectionEnabled", "enabledProviders"].some((key) => changes[key])) load(); });
+chrome.storage.onChanged.addListener((changes, area) => { if (area === "local" && ["latestMetrics", "metricStates", "lastCollectedAt", "autoCollectionEnabled", "enabledProviders", "unavailableMetricKeys", "showClaudeMonthlySpendingCap"].some((key) => changes[key])) load(); });
 $("collect").addEventListener("click", async () => {
   const button = $("collect");
   button.disabled = true;

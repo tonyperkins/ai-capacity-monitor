@@ -91,6 +91,8 @@ and secrets. See [SECURITY.md](SECURITY.md) for private vulnerability reports.
 - Extension tests: `npm test --prefix apps/extension`
 - Package: `python3 scripts/package-extension.py`
 - CYD dashboard firmware: `pio run -d apps/cyd-dashboard`
+- [480×480 LVGL touch dashboard](apps/square-dashboard/README.md): `esphome compile apps/square-dashboard/capacity.yaml`
+- Earlier Arduino square prototype: `pio run -d apps/cyd-dashboard -e square-4848s040`
 - Contribution guide: [CONTRIBUTING.md](CONTRIBUTING.md)
 - Troubleshooting: [docs/troubleshooting.md](docs/troubleshooting.md)
 - Chrome Web Store permission draft: [docs/web-store-permissions.md](docs/web-store-permissions.md)

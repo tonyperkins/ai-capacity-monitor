@@ -16,8 +16,28 @@ jobs:
           python-version: "3.12"
       - name: Install PlatformIO
         run: pip install platformio==6.1.19
-      - name: Build both CYD display profiles
-        run: pio run -d apps/cyd-dashboard -e cyd-usbc-ili934x -e cyd-usbc-st7789
+      - name: Build CYD and square display profiles
+        run: pio run -d apps/cyd-dashboard -e cyd-usbc-ili934x -e cyd-usbc-st7789 -e square-4848s040
+
+  square-lvgl:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install ESPHome
+        run: pip install esphome==2026.10.2
+      - name: Build standalone LVGL dashboard
+        run: |
+          cp apps/square-dashboard/secrets.example.yaml apps/square-dashboard/secrets.yaml
+          esphome compile apps/square-dashboard/capacity.yaml
+      - name: Test model and native LVGL interface
+        run: |
+          cmake -S apps/square-dashboard/tests -B /tmp/capacity-ui-tests -DLVGL_SOURCE="$PWD/apps/square-dashboard/.esphome/build/capacity-square/managed_components/lvgl__lvgl" -DARDUINOJSON_SOURCE="$PWD/apps/square-dashboard/.esphome/build/capacity-square/managed_components/bblanchon__arduinojson"
+          cmake --build /tmp/capacity-ui-tests -j2
+          cd /tmp
+          /tmp/capacity-ui-tests/capacity_ui_tests
 
   extension:
     runs-on: ubuntu-latest

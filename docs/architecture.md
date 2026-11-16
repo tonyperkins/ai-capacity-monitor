@@ -32,6 +32,11 @@ shorter interval reloads the extension-owned pinned collection tabs often
 enough to look like automated traffic to a provider's bot detection. The
 collector never reads or reloads provider tabs the user opened. An optional,
 default-off minimized collection window can isolate those tabs from the main
-Chrome window; collection never restores or focuses it. Users who want fresher
+Chrome window; collection never requests focus for it. A permanently active
+local anchor gives the window a stable title. The anchor is loaded in an
+inactive tab before its native window is created, so compositor rules can
+match the initial title. On Omarchy/Hyprland a silent special-workspace rule
+provides desktop isolation when native minimization is ignored (see
+[Omarchy setup](omarchy.md)). Users who want fresher
 data can lower the interval in Settings or use the manual/per-card refresh,
 which are unaffected by this default.

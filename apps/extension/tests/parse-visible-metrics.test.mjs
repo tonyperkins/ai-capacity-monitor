@@ -13,6 +13,27 @@ function byKey(results) {
   return Object.fromEntries(results.map((metric) => [metric.key, metric]));
 }
 
+test("Grok spending-only overview never mistakes monthly spending for a credit balance", () => {
+  for (const spending of ["$0.00", "$37.42"]) {
+    const meter = new FakeElement({ attributes: { role: "meter", "aria-label": "Weekly included usage", "aria-valuetext": "34% used" } });
+    setPage({ hostname: "grok.com", dom: meter, text: `Premium\n34% used\nWeekly included usage\nResets Nov 11\nAccount balance\n${spending} used this month\nMonthly additional usage\nMonthly additional usage limit\nNot set · Edit\nBuy credits` });
+    const metrics = byKey(parse());
+    assert.equal(metrics["grok-weekly"].value, 66);
+    assert.deepEqual(metrics["grok-extra-credit"], { key: "grok-extra-credit", availability: "not-applicable" });
+  }
+});
+
+test("Grok does not hide credits on an incomplete overview or an unreadable labeled card", () => {
+  for (const text of [
+    "Weekly included usage\n34% used\nAccount balance\nLoading",
+    "Weekly included usage\n34% used\nAccount balance\nMonthly additional usage\nMonthly additional usage limit\nCredits available\nLoading",
+    "Account balance\nMonthly additional usage\nMonthly additional usage limit\nLoading weekly usage",
+  ]) {
+    setPage({ hostname: "grok.com", text });
+    assert.equal(byKey(parse())["grok-extra-credit"], undefined);
+  }
+});
+
 test("registry is structurally sound", () => {
   const keys = PROVIDERS.flatMap((provider) => provider.metrics.map((metric) => metric.key));
   assert.equal(new Set(keys).size, keys.length, "metric keys must be unique across providers");
@@ -197,6 +218,20 @@ test("ChatGPT weekly quota accepts the legacy usage label", () => {
   assert.equal(metric.resetText, "Resets Jul 23, 2026 5:47 PM");
 });
 
+test("ChatGPT weekly-only limits explicitly retire the five-hour window", () => {
+  setPage({ hostname: "chatgpt.com", text: "Plan limits\nWeekly limit\nResets in 5d 20h\n81% left" });
+  const results = byKey(parse());
+  assert.deepEqual(results["chatgpt-session"], { key: "chatgpt-session", availability: "not-applicable" });
+  assert.equal(results["chatgpt-weekly"].value, 81);
+});
+
+test("ChatGPT loading pages and unreadable five-hour values do not retire the window", () => {
+  for (const text of ["Loading", "Weekly limit\nLoading", "5-hour limit\nLoading\nWeekly limit\n81% left"]) {
+    setPage({ hostname: "chatgpt.com", text });
+    assert.equal(byKey(parse())["chatgpt-session"], undefined);
+  }
+});
+
 test("Claude quotas: 'used' phrasing is inverted to percent remaining", () => {
   setPage({
     hostname: "claude.ai",
@@ -352,6 +387,42 @@ test("Grok weekly SuperGrok usage is converted to remaining capacity", () => {
   assert.equal(metric.resetText, "Resets August 26, 2026 at 8:58 AM");
 });
 
+test("Grok Premium usage reads the animated total, reset, and zero extra credits", () => {
+  // October 2026 layout: the total is accessible only via aria-label;
+  // product breakdown percentages appear separately below it.
+  const weekly = new FakeElement({ children: [
+    new FakeElement({ children: [new FakeElement({ textContent: "Weekly Premium Limit" })] }),
+    new FakeElement({ children: [
+      new FakeElement({ attributes: { "aria-label": "8%", role: "img" } }),
+      new FakeElement({ textContent: "used" }),
+      new FakeElement({ textContent: "Resets October 21, 2026 at 9:28 PM" }),
+      new FakeElement({ textContent: "Grok Bot" }),
+      new FakeElement({ textContent: "8%" }),
+    ] }),
+  ] });
+  const credits = new FakeElement({ children: [
+    new FakeElement({ children: [
+      new FakeElement({ children: [new FakeElement({ textContent: "Extra Usage Credits" })] }),
+      new FakeElement({ textContent: "Manage" }),
+    ] }),
+    new FakeElement({ children: [
+      new FakeElement({ attributes: { "aria-label": "$0.00", role: "img" } }),
+      new FakeElement({ textContent: "Additional Credits" }),
+    ] }),
+  ] });
+  setPage({
+    hostname: "grok.com",
+    text: "Usage\nWeekly Premium Limit\nused\nResets October 21, 2026 at 9:28 PM\nGrok Bot\n8%\nExtra Usage Credits\nManage\nAdditional Credits",
+    dom: new FakeElement({ children: [weekly, credits] }),
+  });
+  const results = byKey(parse());
+  assert.equal(results["grok-weekly"].value, 92);
+  assert.equal(results["grok-weekly"].display, "92%");
+  assert.equal(results["grok-weekly"].resetText, "Resets October 21, 2026 at 9:28 PM");
+  assert.equal(results["grok-extra-credit"].value, 0);
+  assert.equal(results["grok-extra-credit"].display, "$0.00");
+});
+
 test("Grok weekly usage keeps supporting the previous Weekly Limit heading", () => {
   setPage({
     hostname: "grok.com",
@@ -383,7 +454,7 @@ test("Grok extra usage credits are read from the accessible animated balance", (
   const { "grok-extra-credit": metric } = byKey(parse());
   assert.equal(metric.value, 1250);
   assert.equal(metric.display, "$12.50");
-  assert.equal(metric.provider, "Grok Extra Credits");
+  assert.equal(metric.provider, "Grok / Cursor Credits");
 });
 
 test("Grok extra usage credits preserve a displayed zero balance", () => {
@@ -427,4 +498,72 @@ test("Google One AI credits (a bare count, not a dollar balance)", () => {
   assert.equal(metric.display, "2,228 credits");
   assert.equal(metric.kind, "credit");
   assert.equal(metric.unit, "count", "a credit count must never be published as usd cents");
+});
+
+
+test("Claude redesigned usage page reads the total balance, This week, and No spend limit", () => {
+  setPage({
+    hostname: "claude.ai",
+    text: [
+      "Your usage", "Pro", "Fresh week. 2% of your weekly limit used.",
+      "Current session", "Starts with your first message", "0% used",
+      "This week", "Resets Saturday 11:00 AM", "2% used",
+      "Usage credits",
+      "Available for any task. Promotional credits are used before purchased credits.",
+      "$38",
+      "Turn on usage credits to keep using Claude if you hit a plan limit. Learn more",
+      "Credit type\tGranted\tSpent\tRemaining",
+      "Purchased\tNot available\tNot available\t$38",
+      "Buy more usage", "Up to 30% off",
+      "Once you hit your weekly limit, your usage credits will be spent.",
+      "Monthly spend limit", "$0.00 this month · No spend limit · Auto-reload off",
+      "Credits are spent automatically past your plan limits.", "Manage",
+      "This week’s usage by product", "Claude Code", "100%", "Chats", "0%",
+    ].join("\n"),
+  });
+  const results = byKey(parse());
+  assert.equal(results["claude-session"].value, 100);
+  assert.equal(results["claude-session"].resetText, undefined);
+  assert.equal(results["claude-weekly"].value, 98);
+  assert.equal(results["claude-weekly"].resetText, "Resets Saturday 11:00 AM");
+  assert.equal(results["claude-usage-credit"].value, 3800);
+  assert.equal(results["claude-usage-cap"].availability, "unlimited");
+});
+
+test("X Subscription collects one shared weekly pool and available credits, not monthly spending", () => {
+  const provider = PROVIDERS.find((candidate) => candidate.id === "grok");
+  assert.equal(provider.url, "https://grok.com/dashboard/");
+  const balance = new FakeElement({ children: [
+    new FakeElement({ textContent: "Credits available" }),
+    new FakeElement({ textContent: "$4.25" }),
+  ] });
+  setPage({ hostname: "grok.com", text: "Weekly included usage\n27% used\nResets October 21, 2026 at 9:28 PM\nMonthly additional usage limit\n$0.15 used this month\nCredits available\n$4.25", dom: new FakeElement({ children: [new FakeElement({ textContent: "$0.15 used this month" }), balance] }) });
+  const results = byKey(parse());
+  assert.equal(results["grok-weekly"].value, 73);
+  assert.equal(results["grok-weekly"].resetText, "Resets October 21, 2026 at 9:28 PM");
+  assert.equal(results["grok-extra-credit"].value, 425);
+  assert.equal(Object.keys(results).length, 2);
+});
+
+test("X Subscription unavailable weekly pool never borrows a product percentage", () => {
+  const balance = new FakeElement({ children: [new FakeElement({ textContent: "Credits available" }), new FakeElement({ textContent: "$0.00" })] });
+  setPage({ hostname: "grok.com", text: "Weekly usage is temporarily unavailable\nWeekly included usage\nResets weekly\nCursor\n12% used\nCredits available\n$0.00", dom: balance });
+  const results = byKey(parse());
+  assert.equal(results["grok-weekly"], undefined);
+  assert.equal(results["grok-extra-credit"].value, 0);
+});
+
+test("Grok reports provider-side weekly unavailability while keeping credits readable", () => {
+  const spec = PROVIDERS.find((provider) => provider.id === "grok");
+  setPage({ hostname: "grok.com", text: "Weekly usage is temporarily unavailable\nCredits available\n$0.00" });
+  assert.deepEqual(inspectProviderPage(spec), { state: "ready", errorCode: "provider-usage-unavailable" });
+});
+
+test("unified Grok dashboard reads named meter with usage before the caption", () => {
+  const meter = new FakeElement({ attributes: { role: "meter", "aria-label": "Weekly included usage", "aria-valuenow": "37.313109425785484", "aria-valuetext": "37% used" } });
+  const card = new FakeElement({ children: [new FakeElement({ textContent: "37%\nused" }), meter, new FakeElement({ textContent: "Weekly included usage" }), new FakeElement({ textContent: "· Resets Oct 21" })] });
+  setPage({ hostname: "grok.com", text: "Current plan\nPremium\n37%\nused\nWeekly included usage\n· Resets Oct 21\nIncluded usage with your subscription. Used before your credits.", dom: card });
+  const metric = byKey(parse())["grok-weekly"];
+  assert.equal(metric.value, 63);
+  assert.equal(metric.resetText, "Resets Oct 21");
 });

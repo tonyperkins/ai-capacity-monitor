@@ -6,4 +6,7 @@ dist/
 !*.example
 apps/local-bridge/config.local.json
 apps/cyd-dashboard/src/mqtt_credentials.h
+apps/cyd-dashboard/src/device_credentials.h
 .pio/
+.esphome/
+apps/square-dashboard/secrets.yaml

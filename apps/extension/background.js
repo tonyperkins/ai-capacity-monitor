@@ -16,6 +16,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (Object.keys(changes).length && Object.values(changes).every((change) => change.newValue === undefined)) return;
   if (changes.autoCollectionEnabled || changes.collectionIntervalMinutes) syncSchedule();
   if (changes.enabledProviders) pruneDisabledProviders(changes.enabledProviders.newValue ?? []);
+  if (changes.showClaudeMonthlySpendingCap) publishCurrentSnapshot();
   if (changes.useCollectionWindow?.oldValue && changes.useCollectionWindow.newValue === false) closeCollectionWindow();
   if (changes.publishMode || changes.bridgeUrl || changes.webhookUrl) chrome.storage.local.set({ publishRetryCount: 0 }).then(() => drainPublishQueue());
 });
@@ -73,11 +74,11 @@ async function getEnabledProviders() {
 
 async function pruneDisabledMetrics(enabledIds) {
   const enabledKeys = new Set(PROVIDERS.filter((provider) => enabledIds.includes(provider.id)).flatMap((provider) => provider.metrics.map((metric) => metric.key)));
-  const { latestMetrics = [], pendingSuspicion = {}, metricStates = {} } = await chrome.storage.local.get(["latestMetrics", "pendingSuspicion", "metricStates"]);
+  const { latestMetrics = [], pendingSuspicion = {}, metricStates = {}, unavailableMetricKeys = [] } = await chrome.storage.local.get(["latestMetrics", "pendingSuspicion", "metricStates", "unavailableMetricKeys"]);
   const keptMetrics = latestMetrics.filter((metric) => enabledKeys.has(metric.key));
   const keptPending = Object.fromEntries(Object.entries(pendingSuspicion).filter(([key]) => enabledKeys.has(key)));
   const keptStates = Object.fromEntries(Object.entries(metricStates).filter(([key]) => enabledKeys.has(key)));
-  await chrome.storage.local.set({ latestMetrics: keptMetrics, pendingSuspicion: keptPending, metricStates: keptStates });
+  await chrome.storage.local.set({ latestMetrics: keptMetrics, pendingSuspicion: keptPending, metricStates: keptStates, unavailableMetricKeys: unavailableMetricKeys.filter((key) => enabledKeys.has(key)) });
 }
 
 async function pruneDisabledProviders(enabledIds) {
@@ -151,11 +152,12 @@ async function runCollection({ permitted: targets = [], missing = [] }) {
   await waitForTabsReady(tabs, targets, deadline);
   const outcomes = [...await readWithRetries(tabs, targets, deadline), ...missing.map((target) => ({ target, metrics: [], state: "permission-needed", errorCode: "permission-needed", attemptedAt: new Date().toISOString() }))];
   const targetKeys = new Set([...targets, ...missing].flatMap((target) => target.metrics.map((metric) => metric.key)));
-  const previous = await chrome.storage.local.get(["latestMetrics", "metricStates", "pendingSuspicion", "autoCollectionEnabled"]);
+  const previous = await chrome.storage.local.get(["latestMetrics", "metricStates", "pendingSuspicion", "autoCollectionEnabled", "unavailableMetricKeys"]);
   const priorByKey = Object.fromEntries((previous.latestMetrics ?? []).map((metric) => [metric.key, metric]));
   const nextPending = { ...(previous.pendingSuspicion ?? {}) };
   const nextByKey = Object.fromEntries((previous.latestMetrics ?? []).filter((metric) => !targetKeys.has(metric.key)).map((metric) => [metric.key, metric]));
   const nextStates = { ...(previous.metricStates ?? {}) };
+  const unavailableKeys = new Set(previous.unavailableMetricKeys ?? []);
   const diagnostics = [];
   const now = Date.now();
 
@@ -165,6 +167,16 @@ async function runCollection({ permitted: targets = [], missing = [] }) {
     for (const definition of target.metrics) {
       const attemptedAt = outcome.attemptedAt;
       const parsedReading = parsedByKey[definition.key];
+      // Absence is a parser-confirmed plan capability, never a failed read.
+      // Keep it locally so later outages do not resurrect a placeholder card.
+      if (parsedReading?.availability === "not-applicable" || (!parsedReading && unavailableKeys.has(definition.key))) {
+        unavailableKeys.add(definition.key);
+        delete nextByKey[definition.key];
+        delete nextStates[definition.key];
+        delete nextPending[definition.key];
+        continue;
+      }
+      if (parsedReading) unavailableKeys.delete(definition.key);
       const parsed = parsedReading ? withResetMetadata(parsedReading, definition, now) : null;
       const prior = priorByKey[definition.key];
       let state = outcome.state === "unauthenticated" ? "unauthenticated" : outcome.state === "permission-needed" ? "permission-needed" : "failed";
@@ -210,6 +222,7 @@ async function runCollection({ permitted: targets = [], missing = [] }) {
   await chrome.storage.local.set({
     latestMetrics: Object.values(nextByKey),
     metricStates: nextStates,
+    unavailableMetricKeys: [...unavailableKeys],
     pendingSuspicion: nextPending,
     lastCollectedAt: new Date(now).toISOString(),
     lastIssues: diagnostics.filter((diagnostic) => diagnostic.state !== "validated").map(diagnosticMessage),
@@ -286,9 +299,31 @@ function isSuspiciousReading(metric, prior) {
 async function publishSnapshot(snapshot) {
   const { publishMode = "disabled" } = await chrome.storage.local.get("publishMode");
   if (publishMode === "disabled") return { state: "disabled" };
+  // Do not append while a drain is replacing the stored queue.
+  if (activeDrain) await activeDrain;
   const { publishQueue = [] } = await chrome.storage.local.get("publishQueue");
   await chrome.storage.local.set({ publishQueue: [...publishQueue, snapshot].slice(-PUBLISH_QUEUE_LIMIT) });
   return drainPublishQueue();
+}
+
+async function publishCurrentSnapshot() {
+  const { latestMetrics = [], metricStates = {}, lastCollectedAt, enabledProviders = [] } = await chrome.storage.local.get(["latestMetrics", "metricStates", "lastCollectedAt", "enabledProviders"]);
+  if (!lastCollectedAt) return;
+  const enabledKeys = new Set(PROVIDERS.filter((provider) => enabledProviders.includes(provider.id)).flatMap((provider) => provider.metrics.map((metric) => metric.key)));
+  const diagnostics = Object.values(metricStates).filter((diagnostic) => enabledKeys.has(diagnostic.key));
+  return publishSnapshot({ version: "1", collectedAt: lastCollectedAt, metrics: latestMetrics.filter((metric) => enabledKeys.has(metric.key)), diagnostics, issues: diagnostics.filter((diagnostic) => diagnostic.state !== "validated").map(diagnosticMessage) });
+}
+
+function snapshotForDisplay(snapshot, showClaudeMonthlySpendingCap) {
+  if (showClaudeMonthlySpendingCap !== false) return snapshot;
+  const hiddenKey = "claude-usage-cap";
+  const hiddenIssues = new Set((snapshot.diagnostics ?? []).filter((diagnostic) => diagnostic.key === hiddenKey).map(diagnosticMessage));
+  return {
+    ...snapshot,
+    metrics: snapshot.metrics.filter((metric) => metric.key !== hiddenKey),
+    ...(snapshot.diagnostics ? { diagnostics: snapshot.diagnostics.filter((diagnostic) => diagnostic.key !== hiddenKey) } : {}),
+    issues: snapshot.issues.filter((issue) => !hiddenIssues.has(issue)),
+  };
 }
 
 function drainPublishQueue() {
@@ -298,7 +333,7 @@ function drainPublishQueue() {
 }
 
 async function runDrain() {
-  const config = await chrome.storage.local.get(["publishMode", "bridgeUrl", "bridgeSecret", "webhookUrl", "webhookAuthValue", "publishQueue", "publishRetryCount", "publishDisclosureKey"]);
+  const config = await chrome.storage.local.get(["publishMode", "bridgeUrl", "bridgeSecret", "webhookUrl", "webhookAuthValue", "publishQueue", "publishRetryCount", "publishDisclosureKey", "showClaudeMonthlySpendingCap"]);
   const mode = config.publishMode ?? "disabled";
   if (mode === "disabled") {
     await chrome.alarms.clear("publish-retry");
@@ -318,7 +353,7 @@ async function runDrain() {
   let rejected = null;
   while (queue.length) {
     let response;
-    try { response = await fetch(url, { method: "POST", headers, body: JSON.stringify(queue[0]) }); } catch { return schedulePublishRetry(queue, config, "destination unreachable"); }
+    try { response = await fetch(url, { method: "POST", headers, body: JSON.stringify(snapshotForDisplay(queue[0], config.showClaudeMonthlySpendingCap)) }); } catch { return schedulePublishRetry(queue, config, "destination unreachable"); }
     if (response.status === 429 || response.status >= 500) return schedulePublishRetry(queue, config, `destination responded ${response.status}`);
     queue = queue.slice(1);
     await chrome.storage.local.set({ publishQueue: queue, publishRetryCount: 0 });
@@ -340,56 +375,65 @@ async function setPublishStatus(status) {
   return status;
 }
 
-async function ensureCollectionTabs(targets = PROVIDERS) {
-  const { collectionTabIds = {}, useCollectionWindow = false } = await chrome.storage.local.get(["collectionTabIds", "useCollectionWindow"]);
-  const nextCollectionTabIds = { ...collectionTabIds };
-  const collectionWindow = useCollectionWindow && targets.length ? await ensureCollectionWindow(targets[0].url) : null;
-  let bootstrapTabId = collectionWindow?.bootstrapTabId ?? null;
+async function ensureCollectionTabs(targets = PROVIDERS, allowWindowReset = true) {
+  const { useCollectionWindow = false } = await chrome.storage.local.get("useCollectionWindow");
+  const collectionWindow = useCollectionWindow && targets.length ? await ensureCollectionWindow() : null;
   const tabs = [];
   const opened = [];
-  for (const target of targets) {
-    let tab = null;
-    const tabId = nextCollectionTabIds[target.id];
-    if (Number.isInteger(tabId)) {
-      try {
-        const existing = await chrome.tabs.get(tabId);
-        if (existing.url?.includes(target.match)) tab = existing;
-      } catch { /* A manually closed collection tab is recreated below. */ }
+  try {
+    // Window recovery may have cleared the old tab IDs. Read them afterwards.
+    const { collectionTabIds = {} } = await chrome.storage.local.get("collectionTabIds");
+    const nextCollectionTabIds = { ...collectionTabIds };
+    if (collectionWindow) {
+      const ownedIds = new Set(Object.values(collectionTabIds));
+      const anchorUrl = chrome.runtime.getURL("collector.html");
+      const existingTabs = await chrome.tabs.query({ windowId: collectionWindow.id });
+      const anchors = existingTabs.filter((tab) => tab.url === anchorUrl);
+      // Recover windows already bloated by older versions, even on a partial
+      // provider refresh. Never scan ordinary browser windows for provider URLs.
+      if (anchors.length !== 1 || existingTabs.some((tab) => tab.url !== anchorUrl && !ownedIds.has(tab.id))) {
+        throw new Error("Collection window contains untracked tabs");
+      }
     }
-    if (tab && collectionWindow && tab.windowId !== collectionWindow.id) {
-      try {
-        await chrome.tabs.move(tab.id, { windowId: collectionWindow.id, index: -1 });
-        tab = await chrome.tabs.get(tab.id);
-      } catch { tab = null; }
-    }
-    if (!tab) {
-      if (bootstrapTabId !== null) {
+    for (const target of targets) {
+      let tab = null;
+      const tabId = nextCollectionTabIds[target.id];
+      if (Number.isInteger(tabId)) {
         try {
-          const bootstrapTab = await chrome.tabs.get(bootstrapTabId);
-          if (bootstrapTab.url?.includes(target.match)) tab = await chrome.tabs.update(bootstrapTab.id, { pinned: true });
-        } catch { /* A closed bootstrap tab is replaced below. */ }
-        bootstrapTabId = null;
+          tab = await chrome.tabs.get(tabId);
+          if (collectionWindow && tab.windowId !== collectionWindow.id) {
+            await chrome.tabs.move(tab.id, { windowId: collectionWindow.id, index: -1 });
+            tab = await chrome.tabs.get(tab.id);
+          }
+          // A sign-in redirect or changed usage route does not change ownership.
+          // Navigate the owned tab back instead of leaking it and creating more.
+          if (!tab.url?.includes(target.match)) tab = await chrome.tabs.update(tab.id, { url: target.url });
+          if (!tab.pinned) tab = await chrome.tabs.update(tab.id, { pinned: true });
+        } catch (error) {
+          if (collectionWindow) throw error;
+          await closeTabs([tabId]);
+          tab = null;
+        }
       }
       if (!tab) {
         const createProperties = { url: target.url, active: false, pinned: true };
         if (collectionWindow) createProperties.windowId = collectionWindow.id;
         tab = await chrome.tabs.create(createProperties);
-      }
-      nextCollectionTabIds[target.id] = tab.id;
-      opened.push(tab.id);
-    } else if (!tab.pinned) {
-      try { tab = await chrome.tabs.update(tab.id, { pinned: true }); }
-      catch {
-        tab = await chrome.tabs.create({ url: target.url, active: false, pinned: true });
         nextCollectionTabIds[target.id] = tab.id;
         opened.push(tab.id);
       }
+      tabs.push(tab);
     }
-    tabs.push(tab);
+    await chrome.storage.local.set({ collectionTabIds: nextCollectionTabIds });
+    return { tabs, opened };
+  } catch (error) {
+    if (collectionWindow) {
+      // Close before replacing: never leave a failed window (or its tabs) alive.
+      await closeCollectionWindow();
+      if (allowWindowReset) return ensureCollectionTabs(targets, false);
+    } else await closeTabs(opened);
+    throw error;
   }
-  if (bootstrapTabId !== null) await closeTabs([bootstrapTabId]);
-  await chrome.storage.local.set({ collectionTabIds: nextCollectionTabIds });
-  return { tabs, opened };
 }
 
 async function refreshTabs(tabs, openedTabIds, targets) {
@@ -422,6 +466,8 @@ async function readWithRetries(tabs, targets, deadline) {
 async function readProviderWithRetries(tab, target, deadline) {
   const policy = target.collection ?? { maxAttempts: 3, retryDelayMs: 1500 };
   let errorCode = "no-readable-values";
+  let partialMetrics = [];
+  let refreshedPlan = false;
   let attemptedAt = new Date().toISOString();
   for (let attempt = 0; attempt < policy.maxAttempts && Date.now() < deadline; attempt += 1) {
     attemptedAt = new Date().toISOString();
@@ -443,8 +489,19 @@ async function readProviderWithRetries(tab, target, deadline) {
           if (apiResult?.length) return { target, metrics: apiResult, state: "validated", errorCode: null, attemptedAt };
         }
         const [{ result }] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: readProviderMetrics, args: [{ hostname: target.hostname, metrics: target.metrics }] });
-        if (result?.length) return { target, metrics: result, state: "validated", errorCode: null, attemptedAt };
-        errorCode = "no-readable-values";
+        if (result?.length) {
+          // Cards can render independently during a pass. Keep each successful
+          // reading until a newer reading for that same metric replaces it.
+          // A later weekly-only response must not discard readable credits.
+          partialMetrics = [...new Map([...partialMetrics, ...result].map((metric) => [metric.key, metric])).values()];
+          const complete = target.metrics.every((metric) => partialMetrics.some((reading) => reading.key === metric.key));
+          if (!policy.waitForAllMetrics || complete) return { target, metrics: partialMetrics, state: "validated", errorCode: null, attemptedAt };
+        }
+        if (policy.refreshPlanUsage && !refreshedPlan && attempt > 0 && !partialMetrics.some((metric) => metric.key === "grok-weekly")) {
+          const [{ result: clicked }] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: refreshGrokPlanUsage });
+          refreshedPlan = clicked === true;
+        }
+        errorCode = inspection?.errorCode ?? "no-readable-values";
       }
     } catch {
       errorCode = "tab-unavailable";
@@ -452,7 +509,23 @@ async function readProviderWithRetries(tab, target, deadline) {
     const remaining = deadline - Date.now();
     if (attempt < policy.maxAttempts - 1 && remaining > 0) await sleep(Math.min(policy.retryDelayMs, remaining));
   }
-  return { target, metrics: [], state: "failed", errorCode: Date.now() >= deadline ? "collection-deadline" : errorCode, attemptedAt };
+  return { target, metrics: partialMetrics, state: "failed", errorCode: Date.now() >= deadline ? "collection-deadline" : errorCode, attemptedAt };
+}
+
+// Refresh only the usage control within the current-plan card, once per pass.
+// Never click general refresh controls or billing actions elsewhere on the page.
+function refreshGrokPlanUsage() {
+  if (location.hostname !== "grok.com" || !location.pathname.startsWith("/dashboard")) return false;
+  const label = [...document.querySelectorAll("*")].find((element) => element.children.length === 0 && element.textContent?.trim() === "Current plan");
+  for (let card = label?.parentElement, depth = 0; card && depth < 4; card = card.parentElement, depth += 1) {
+    if (["BODY", "MAIN"].includes(card.tagName) || card.querySelector('[aria-label="Credits"]')) break;
+    const button = [...card.querySelectorAll("button")].find((element) => {
+      const name = element.getAttribute("aria-label") || element.getAttribute("title") || element.textContent;
+      return /^(?:refresh|refresh usage)$/i.test(name?.trim() ?? "") && !element.disabled;
+    });
+    if (button) { button.click(); return true; }
+  }
+  return false;
 }
 
 function sleep(milliseconds) {
@@ -495,28 +568,64 @@ async function ensureCollectionWindowAnchor(windowId) {
   }
 }
 
-async function ensureCollectionWindow(initialUrl) {
+async function ensureCollectionWindow() {
   const { collectionWindowId = null } = await chrome.storage.local.get("collectionWindowId");
   if (Number.isInteger(collectionWindowId)) {
     try {
       const existing = await chrome.windows.get(collectionWindowId);
+      const anchorId = await ensureCollectionWindowAnchor(existing.id);
+      if (!Number.isInteger(anchorId)) throw new Error("Collection window is unavailable");
+      // Keep a stable native window title for compositor rules. Activating a
+      // tab does not focus its window, unlike windows.update({ focused: true }).
+      await chrome.tabs.update(anchorId, { active: true });
       if (existing.state !== "minimized") await chrome.windows.update(existing.id, { state: "minimized" });
-      return { id: existing.id, bootstrapTabId: null };
-    } catch { /* A manually closed collection window is recreated below. */ }
+      return { id: existing.id };
+    } catch {
+      // Reuse may fail even though the window is still alive (for example an
+      // anchor/minimization update failed). Close it before creating another.
+      await closeCollectionWindow();
+    }
   }
-  const created = await chrome.windows.create({ url: initialUrl, state: "minimized", focused: false });
-  const bootstrapTab = created.tabs?.[0] ?? (await chrome.tabs.query({ windowId: created.id }))[0];
-  await chrome.storage.local.set({ collectionWindowId: created.id });
-  return { id: created.id, bootstrapTabId: bootstrapTab?.id ?? null };
+  // Load the inert anchor before mapping its window. Hyprland workspace rules
+  // match the title at map time, before a newly opened URL may have loaded.
+  // This briefly stages one inactive local tab; provider pages are only ever
+  // created in the collection window.
+  const anchor = await chrome.tabs.create({ url: chrome.runtime.getURL("collector.html"), active: false });
+  let created;
+  try {
+    const deadline = Date.now() + 3000;
+    while (true) {
+      const current = await chrome.tabs.get(anchor.id);
+      if (current.status === "complete" && current.title === "Capacity Monitor collector") break;
+      if (Date.now() >= deadline) throw new Error("Collection window anchor did not load");
+      await sleep(50);
+    }
+    created = await chrome.windows.create({ tabId: anchor.id, state: "minimized", focused: false });
+    await chrome.storage.local.set({ collectionWindowId: created.id });
+    return { id: created.id };
+  } catch (error) {
+    if (created) {
+      try { await chrome.windows.remove(created.id); } catch { /* Already closed. */ }
+    } else await closeTabs([anchor.id]);
+    throw error;
+  }
 }
 
 async function closeCollectionWindow() {
   const { collectionWindowId = null, collectionTabIds = {} } = await chrome.storage.local.get(["collectionWindowId", "collectionTabIds"]);
   if (Number.isInteger(collectionWindowId)) {
     try { await chrome.windows.remove(collectionWindowId); }
-    catch { await closeTabs(Object.values(collectionTabIds)); }
-  } else {
-    await closeTabs(Object.values(collectionTabIds));
+    catch (error) {
+      // A missing window is already cleaned up. If it still exists, keep its
+      // ownership record and stop rather than orphaning it and making another.
+      let stillExists = false;
+      try { await chrome.windows.get(collectionWindowId); stillExists = true; } catch { /* Already closed. */ }
+      if (stillExists) throw error;
+    }
   }
+  // A failed move may have left an owned tab outside the dedicated window.
+  // Close individually because already-closed IDs must not prevent cleanup of
+  // the remaining tabs. These IDs never include ordinary user-created tabs.
+  await Promise.all(Object.values(collectionTabIds).map((tabId) => closeTabs([tabId])));
   await chrome.storage.local.set({ collectionWindowId: null, collectionTabIds: {} });
 }

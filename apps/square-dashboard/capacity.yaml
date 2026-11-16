@@ -1,0 +1,225 @@
+esphome:
+  name: capacity-square
+  friendly_name: Capacity Square
+  includes:
+    - touch_calibration.h
+    - capacity_model.h
+    - capacity_ui.h
+  build_flags:
+    - -DLV_FONT_MONTSERRAT_14=1
+    - -DLV_FONT_MONTSERRAT_16=1
+    - -DLV_FONT_MONTSERRAT_18=1
+    - -DLV_FONT_MONTSERRAT_20=1
+    - -DLV_FONT_MONTSERRAT_24=1
+    - -DLV_FONT_MONTSERRAT_32=1
+    - -DLV_USE_BAR=1
+    - -DLV_USE_BUTTON=1
+    - -DLV_USE_SLIDER=1
+    - -DLV_USE_LABEL=1
+    - -DLV_USE_FLEX=1
+  on_boot:
+    priority: -100
+    then:
+      - lambda: |-
+          capacity_ui::begin(
+            [] { id(fetch_snapshot).execute(); },
+            [](float value) {
+              auto call = id(backlight).turn_on();
+              call.set_brightness(value);
+              call.set_transition_length(0);
+              call.perform();
+            });
+          capacity_ui::set_brightness_level(id(backlight).current_values.get_brightness());
+          capacity_ui::configure_rotation(id(display_rotation),[](int degrees,bool save) {
+            id(display_ui).set_rotation(degrees);
+            ESP_LOGI("capacity", "Orientation: %d degrees",degrees);
+            if(save){id(display_rotation)=degrees;id(persist_rotation).execute();}
+          });
+          capacity_ui::configure_touch_calibration(id(touch_calibration),
+            [] { id(touch).set_swap_xy(false); },
+            [](const capacity_touch::Calibration& c, bool save) {
+              id(touch).set_swap_xy(c.swap_xy);
+              id(touch).set_mirror_x(c.mirror_x);
+              id(touch).set_mirror_y(c.mirror_y);
+              id(touch).set_calibration(c.xmin,c.xmax,c.ymin,c.ymax);
+              ESP_LOGI("touchcal", "Applied X=%d..%d Y=%d..%d mirror=%d,%d swap=%d error=%.1f",c.xmin,c.xmax,c.ymin,c.ymax,c.mirror_x,c.mirror_y,c.swap_xy,c.error);
+              if (save) {id(touch_calibration)=c.saved();id(persist_calibration).execute();}
+            });
+          ESP_LOGI("capacity", "LVGL touch dashboard ready");
+
+esp32:
+  board: esp32-s3-devkitc-1
+  flash_size: 16MB
+  flash_mode: dio
+  framework:
+    type: esp-idf
+    advanced:
+      execute_from_psram: true
+
+psram:
+  mode: octal
+  speed: 80MHz
+
+logger:
+  level: INFO
+  baud_rate: 115200
+  hardware_uart: UART0
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  power_save_mode: none
+  reboot_timeout: 0s
+  on_connect:
+    then:
+      - delay: 1s
+      - script.execute: fetch_snapshot
+  on_disconnect:
+    then:
+      - lambda: capacity_ui::connection_failed();
+
+globals:
+  - id: display_rotation
+    type: int
+    restore_value: true
+    initial_value: '0'
+  - id: touch_calibration
+    type: std::array<int, 8>
+    restore_value: true
+    initial_value: '{0,480,0,480,1,1,0,0}'
+
+preferences:
+  flash_write_interval: 5min
+
+spi:
+  id: lcd_spi
+  clk_pin: GPIO48
+  mosi_pin: GPIO47
+
+i2c:
+  id: touch_bus
+  sda: GPIO19
+  scl:
+    number: GPIO45
+    ignore_strapping_warning: true
+  frequency: 400kHz
+
+display:
+  - platform: mipi_rgb
+    id: panel
+    model: GUITION-4848S040
+    update_interval: never
+    auto_clear_enabled: false
+
+touchscreen:
+  - platform: gt911
+    id: touch
+    display: panel
+    # Match the GUITION panel model's mirrored X and Y orientation.
+    transform:
+      mirror_x: true
+      mirror_y: true
+    on_touch:
+      - lambda: capacity_ui::calibration_touch(touch.x_raw,touch.y_raw);
+    on_update:
+      - lambda: |-
+          if (!touches.empty()) capacity_ui::calibration_update(touches.front().x_raw,touches.front().y_raw);
+    on_release:
+      - lambda: capacity_ui::calibration_release();
+
+output:
+  - platform: ledc
+    id: backlight_pwm
+    pin: GPIO38
+    frequency: 150Hz
+    min_power: 0.01
+    zero_means_zero: true
+
+light:
+  - platform: monochromatic
+    id: backlight
+    name: Backlight
+    output: backlight_pwm
+    restore_mode: RESTORE_AND_ON
+    gamma_correct: 1.0
+    default_transition_length: 0s
+
+time:
+  - platform: sntp
+    id: sntp_clock
+    timezone: America/Chicago
+
+lvgl:
+  id: display_ui
+  displays: [panel]
+  touchscreens: [touch]
+  default_font: montserrat_18
+  buffer_size: 25%
+  rotation: 0
+  full_refresh: false
+  widgets:
+    - obj:
+        id: bootstrap
+        hidden: true
+        width: 1
+        height: 1
+
+http_request:
+  id: bridge_http
+  timeout: 4s
+  verify_ssl: true
+
+script:
+  - id: persist_rotation
+    then:
+      - delay: 250ms
+      - lambda: |-
+          if (esphome::global_preferences->sync()) ESP_LOGI("capacity", "Orientation saved");
+          else ESP_LOGW("capacity", "Orientation save failed");
+  - id: persist_calibration
+    then:
+      - delay: 250ms
+      - lambda: |-
+          if (esphome::global_preferences->sync()) ESP_LOGI("touchcal", "Calibration saved and verified");
+          else ESP_LOGW("touchcal", "Calibration save failed");
+  - id: fetch_snapshot
+    mode: single
+    then:
+      - if:
+          condition:
+            wifi.connected:
+          then:
+            - lambda: capacity_ui::set_busy(true);
+            - delay: 75ms
+            - http_request.get:
+                url: !secret snapshot_url
+                request_headers:
+                  Authorization: !secret display_authorization
+                capture_response: true
+                max_response_buffer_size: 32768
+                on_response:
+                  then:
+                    - lambda: |-
+                        if (response->status_code != 200) {
+                          capacity_ui::connection_failed();
+                          return;
+                        }
+                        const bool valid = json::parse_json(body, [](JsonObject root) {
+                          return capacity_ui::accept_snapshot(root);
+                        });
+                        if (!valid) capacity_ui::connection_failed();
+                        else ESP_LOGI("capacity", "Snapshot accepted: %u metrics", static_cast<unsigned>(capacity_ui::snapshot.metrics.size()));
+                on_error:
+                  then:
+                    - lambda: capacity_ui::connection_failed();
+          else:
+            - lambda: capacity_ui::connection_failed();
+
+interval:
+  - interval: 60s
+    startup_delay: 60s
+    then:
+      - script.execute: fetch_snapshot
+  - interval: 10s
+    then:
+      - lambda: capacity_ui::update_status();

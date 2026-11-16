@@ -11,7 +11,8 @@ const collectorHtml = await readFile(new URL("../collector.html", import.meta.ur
 
 test("collection uses extension-owned pinned tabs instead of matching ordinary provider tabs", () => {
   assert.match(collectionTabs, /collectionTabIds/);
-  assert.doesNotMatch(collectionTabs, /chrome\.tabs\.query/);
+  assert.match(collectionTabs, /chrome\.tabs\.query\(\{ windowId: collectionWindow.id \}\)/);
+  assert.doesNotMatch(collectionTabs, /chrome\.tabs\.query\(\{\}\)/);
   assert.match(collectionTabs, /pinned: true/);
   assert.match(collectionTabs, /chrome\.storage\.local\.set\(\{ collectionTabIds: nextCollectionTabIds \}\)/);
 });
@@ -56,8 +57,8 @@ test("a default-off minimized collection window isolates automatic collection", 
   assert.match(optionsHtml, /id="collection-window"/);
   assert.match(optionsSource, /useCollectionWindow: \$\("collection-window"\)\.checked/);
   assert.match(source, /useCollectionWindow: false/);
-  assert.match(source, /chrome\.windows\.create\(\{ url: initialUrl, state: "minimized", focused: false \}\)/);
-  assert.match(collectionTabs, /await ensureCollectionWindow\(targets\[0\]\.url\)/);
+  assert.match(source, /chrome\.windows\.create\(\{ tabId: anchor.id, state: "minimized", focused: false \}\)/);
+  assert.match(collectionTabs, /await ensureCollectionWindow\(\)/);
   assert.doesNotMatch(collectionTabs, /focused:\s*true/);
 });
 

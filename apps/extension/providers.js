@@ -48,8 +48,8 @@ const PROVIDERS = [
     collection: { readyTimeoutMs: 12000, maxAttempts: 4, retryDelayMs: 1500 },
     authMarkers: ["log in", "sign in", "continue with google"],
     metrics: [
-      { key: "chatgpt-session", provider: "ChatGPT Plus", label: "5-hour limit", kind: "quota", unit: "percent", resetWindowMs: 5 * 60 * 60 * 1000, read: { type: "quota", label: "5-hour limit" } },
-      { key: "chatgpt-weekly", provider: "ChatGPT Plus", label: "Weekly limit", kind: "quota", unit: "percent", resetWindowMs: 7 * 24 * 60 * 60 * 1000, read: { type: "quota", labels: ["Weekly limit", "Weekly usage limit"] } },
+      { key: "chatgpt-session", provider: "ChatGPT", label: "5-hour limit", kind: "quota", unit: "percent", resetWindowMs: 5 * 60 * 60 * 1000, absentWhenPresent: "chatgpt-weekly", read: { type: "quota", label: "5-hour limit" } },
+      { key: "chatgpt-weekly", provider: "ChatGPT", label: "Weekly limit", kind: "quota", unit: "percent", resetWindowMs: 7 * 24 * 60 * 60 * 1000, read: { type: "quota", labels: ["Weekly limit", "Weekly usage limit"] } },
     ],
   },
   {
@@ -60,10 +60,12 @@ const PROVIDERS = [
     match: "claude.ai/new#settings/usage",
     collection: { readyTimeoutMs: 15000, maxAttempts: 4, retryDelayMs: 1500 },
     authMarkers: ["log in", "sign in", "continue with google"],
+    // The redesigned page shows a total below Usage credits, before its
+    // per-credit-type table; older pages label the total Current balance.
     metrics: [
-      { key: "claude-usage-credit", provider: "Claude.ai Balance", label: "Usage-credit balance", kind: "credit", unit: "usd", read: { type: "money-before-or-after", label: "Current balance" } },
+      { key: "claude-usage-credit", provider: "Claude.ai Balance", label: "Usage-credit balance", kind: "credit", unit: "usd", read: { type: "money-before-or-after", label: "Current balance", fallbackLabel: "Usage credits" } },
       { key: "claude-session", provider: "Claude Pro", label: "Current session", kind: "quota", unit: "percent", resetWindowMs: 5 * 60 * 60 * 1000, read: { type: "quota", label: "Current session" } },
-      { key: "claude-weekly", provider: "Claude Pro", label: "Weekly · all models", kind: "quota", unit: "percent", resetWindowMs: 7 * 24 * 60 * 60 * 1000, read: { type: "quota", label: "All models" } },
+      { key: "claude-weekly", provider: "Claude Pro", label: "Weekly · all models", kind: "quota", unit: "percent", resetWindowMs: 7 * 24 * 60 * 60 * 1000, read: { type: "quota", labels: ["This week", "All models"] } },
       // Claude removed the Fable-specific limit from its current usage page.
       // Restore this metric if the provider exposes that separate limit again.
       // { key: "claude-fable", provider: "Claude Pro", label: "Weekly · Fable", kind: "quota", unit: "percent", resetWindowMs: 7 * 24 * 60 * 60 * 1000, read: { type: "quota", label: "Fable" } },
@@ -101,15 +103,15 @@ const PROVIDERS = [
   },
   {
     id: "grok",
-    name: "Grok",
+    name: "Grok / Cursor (X Subscription)",
     hostname: "grok.com",
-    url: "https://grok.com/?q=&reasoningMode=none&voice=false&_s=usage",
+    url: "https://grok.com/dashboard/",
     match: "grok.com/",
-    collection: { readyTimeoutMs: 12000, maxAttempts: 3, retryDelayMs: 1500, navigateOnCollect: true },
+    collection: { readyTimeoutMs: 12000, maxAttempts: 12, retryDelayMs: 1500, navigateOnCollect: true, waitForAllMetrics: true, refreshPlanUsage: true },
     authMarkers: ["sign in", "log in", "continue with x", "continue with google"],
     metrics: [
-      { key: "grok-extra-credit", provider: "Grok Extra Credits", label: "Additional credits", kind: "credit", unit: "usd", read: { type: "labeled-card-money", labels: ["Extra Usage Credits"], textFallback: false, maxAncestorDepth: 3 } },
-      { key: "grok-weekly", provider: "Grok", label: "Weekly limit", kind: "quota", unit: "percent", resetWindowMs: 7 * 24 * 60 * 60 * 1000, read: { type: "quota", labels: ["Weekly SuperGrok Limit", "Weekly Limit"] } },
+      { key: "grok-extra-credit", provider: "Grok / Cursor Credits", label: "Shared additional credits", kind: "credit", unit: "usd", absentWhenPresent: "grok-weekly", absentWhenTextPresent: ["Account balance", "Monthly additional usage", "Monthly additional usage limit"], read: { type: "labeled-card-money", labels: ["Credits available", "Extra Usage Credits"], textFallback: false, maxAncestorDepth: 3 } },
+      { key: "grok-weekly", provider: "Grok / Cursor", label: "Shared weekly limit", kind: "quota", unit: "percent", resetWindowMs: 7 * 24 * 60 * 60 * 1000, read: { type: "quota", unavailableMarker: "Weekly usage is temporarily unavailable", labels: ["Weekly included usage", "Weekly usage", "Weekly Premium Limit", "Weekly SuperGrok Limit", "Weekly Limit"] } },
     ],
   },
   {
@@ -148,6 +150,7 @@ function inspectProviderPage(spec) {
   const text = String(document.body?.innerText ?? "").toLowerCase();
   const routeLooksLikeLogin = /\/(?:login|log-in|signin|sign-in|auth)(?:[/?#]|$)/.test(href);
   const hasAuthMarker = (spec.authMarkers ?? []).some((marker) => text.includes(String(marker).toLowerCase()));
+  if (spec.id === "grok" && text.includes("weekly usage is temporarily unavailable")) return { state: "ready", errorCode: "provider-usage-unavailable" };
   return routeLooksLikeLogin || hasAuthMarker
     ? { state: "unauthenticated", errorCode: "sign-in-required" }
     : { state: "ready", errorCode: null };
@@ -283,6 +286,18 @@ function readProviderMetrics(spec) {
   };
   const accessibleQuotaAfter = (label) => {
     const elements = [...document.querySelectorAll("*")];
+    // The unified dashboard puts the percentage before its caption and exposes
+    // the authoritative value on a named meter instead of an animated counter.
+    const meter = elements.find((element) => element.getAttribute?.("role") === "meter" && element.getAttribute("aria-label")?.toLowerCase() === label.toLowerCase());
+    if (meter) {
+      const displayed = meter.getAttribute("aria-valuetext")?.match(/^(\d+(?:\.\d+)?)%\s*(used|remaining|left)$/i);
+      const raw = meter.getAttribute("aria-valuenow");
+      const amount = displayed ? Number(displayed[1]) : raw?.trim() ? Number(raw) : NaN;
+      if (Number.isFinite(amount) && amount >= 0 && amount <= 100 && displayed) {
+        return { remaining: /used/i.test(displayed[2]) ? 100 - amount : amount,
+          resetText: meter.parentElement?.innerText.match(/Resets[^\n]+/i)?.[0] };
+      }
+    }
     const labelElement = elements.find((element) => element.children.length === 0 && element.textContent?.trim().toLowerCase() === label.toLowerCase());
     const belongsTo = (element, container) => {
       for (let current = element; current; current = current.parentElement) if (current === container) return true;
@@ -315,7 +330,7 @@ function readProviderMetrics(spec) {
   const nearbyResetAfter = (label) => labelWindows(label, 240).map((window) => window.match(/Resets[^\n]+/i)?.[0]).find(Boolean);
   const unlimitedAfter = (label, marker) => labelWindows(label).some((window) => {
     const escapedMarker = marker.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    return new RegExp(`(?:unlimited[\\s\\S]{0,120}${escapedMarker}|${escapedMarker}[\\s\\S]{0,120}unlimited)`, "i").test(window);
+    return new RegExp(`(?:(?:unlimited|no spend limit)[\\s\\S]{0,120}${escapedMarker}|${escapedMarker}[\\s\\S]{0,120}(?:unlimited|no spend limit))`, "i").test(window);
   });
   const money = (value) => {
     const normalized = value.replace(/[\s$,()]/g, "");
@@ -332,7 +347,7 @@ function readProviderMetrics(spec) {
     const read = metric.read;
     if (read.type === "money-after" || read.type === "money-before-or-after" || read.type === "labeled-card-money") {
       const raw = read.type === "money-after" ? moneyAfter(read.label)
-        : read.type === "money-before-or-after" ? (moneyBefore(read.label) ?? moneyAfter(read.label))
+        : read.type === "money-before-or-after" ? (moneyBefore(read.label) ?? moneyAfter(read.label) ?? (read.fallbackLabel ? moneyAfter(read.fallbackLabel) : null))
         : labeledCardMoney(read.labels, read.textFallback !== false, read.maxAncestorDepth);
       // The snapshot contract represents USD as integer cents. Rounding here
       // prevents binary floating-point artifacts (for example 5.10 * 100)
@@ -342,6 +357,7 @@ function readProviderMetrics(spec) {
       const count = countAfter(read.label);
       if (Number.isFinite(count)) out.push({ ...base, value: count, display: `${count.toLocaleString()} credits` });
     } else if (read.type === "quota" || read.type === "unlimited-or-quota") {
+      if (read.unavailableMarker && text.toLowerCase().includes(read.unavailableMarker.toLowerCase())) continue;
       if (read.type === "unlimited-or-quota" && unlimitedAfter(read.label, read.unlimitedMarker)) {
         out.push({ ...base, value: 100, display: "Unlimited", availability: "unlimited", resetText: nearbyResetAfter(read.label) });
         continue;
@@ -349,6 +365,18 @@ function readProviderMetrics(spec) {
       const labels = asLabels(read);
       const remaining = remainingPercentAfter(labels);
       if (Number.isFinite(remaining)) out.push({ ...base, value: remaining, display: `${remaining}%`, resetText: quotaResetAfter(labels) });
+    }
+  }
+  // A parsed companion quota confirms the usage surface has loaded. Only
+  // mark optional metrics absent when their heading is missing too; a heading
+  // without a readable value is still a collection failure. Some layouts also
+  // require explicit page markers so a partially loaded card cannot hide them.
+  for (const metric of spec.metrics) {
+    if (metric.absentWhenPresent && out.some((reading) => reading.key === metric.absentWhenPresent && Number.isFinite(reading.value))
+      && !out.some((reading) => reading.key === metric.key)
+      && (metric.absentWhenTextPresent ?? []).every((marker) => text.toLowerCase().includes(marker.toLowerCase()))
+      && !asLabels(metric.read).some((label) => text.toLowerCase().includes(label.toLowerCase()))) {
+      out.push({ key: metric.key, availability: "not-applicable" });
     }
   }
   return out;

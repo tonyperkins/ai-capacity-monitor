@@ -115,9 +115,10 @@ async function focusProvider(key) {
 }
 
 async function load() {
-  const data = await chrome.storage.local.get(["autoCollectionEnabled", "useCollectionWindow", "collectionIntervalMinutes", "bridgeUrl", "bridgeSecret", "webhookUrl", "webhookAuthValue", "enabledProviders", "publishMode", "metricStates", "publishDestinationOrigin", "publishDisclosureKey"]);
+  const data = await chrome.storage.local.get(["autoCollectionEnabled", "useCollectionWindow", "showClaudeMonthlySpendingCap", "collectionIntervalMinutes", "bridgeUrl", "bridgeSecret", "webhookUrl", "webhookAuthValue", "enabledProviders", "publishMode", "metricStates", "publishDestinationOrigin", "publishDisclosureKey"]);
   $("auto-updates").checked = data.autoCollectionEnabled !== false;
   $("collection-window").checked = Boolean(data.useCollectionWindow);
+  $("show-claude-monthly-spending-cap").checked = data.showClaudeMonthlySpendingCap !== false;
   $("interval").value = data.collectionIntervalMinutes ?? 20;
   $("bridge-url").value = data.bridgeUrl ?? "";
   savedBridgeSecret = data.bridgeSecret ?? "";
@@ -190,7 +191,7 @@ $("save").addEventListener("click", async () => {
   $("publish-error").textContent = "";
   publishDestinationOrigin = permission.origin ?? publishDestinationOrigin;
   savedPublishDisclosureKey = disclosureKey;
-  await chrome.storage.local.set({ autoCollectionEnabled: $("auto-updates").checked, useCollectionWindow: $("collection-window").checked, collectionIntervalMinutes: interval, enabledProviders, publishMode, bridgeUrl, bridgeSecret: $("bridge-secret").value.trim() || savedBridgeSecret, webhookUrl, webhookAuthValue: $("webhook-auth").value.trim() || savedWebhookAuth, publishDestinationOrigin, publishDisclosureKey: savedPublishDisclosureKey });
+  await chrome.storage.local.set({ autoCollectionEnabled: $("auto-updates").checked, useCollectionWindow: $("collection-window").checked, showClaudeMonthlySpendingCap: $("show-claude-monthly-spending-cap").checked, collectionIntervalMinutes: interval, enabledProviders, publishMode, bridgeUrl, bridgeSecret: $("bridge-secret").value.trim() || savedBridgeSecret, webhookUrl, webhookAuthValue: $("webhook-auth").value.trim() || savedWebhookAuth, publishDestinationOrigin, publishDisclosureKey: savedPublishDisclosureKey });
   savedBridgeSecret = $("bridge-secret").value.trim() || savedBridgeSecret;
   savedWebhookAuth = $("webhook-auth").value.trim() || savedWebhookAuth;
   $("bridge-secret").value = "";

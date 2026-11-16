@@ -108,6 +108,13 @@ Press and hold for about 1.5 seconds to rotate clockwise; the selected
 orientation and brightness are saved across restarts. Portrait and landscape
 use separate responsive layouts rather than scaling the same canvas.
 
+The extension's **Settings → Display → Show Claude monthly spending cap**
+also controls the CYD card. When hidden, the extension omits the cap from
+published snapshots and refreshes the bridge's saved snapshot on save.
+The display applies the change on its next successful poll; no firmware
+update is needed. If the bridge is unreachable, the cached display remains
+until delivery and polling recover.
+
 When a valid MQTT brightness payload has arrived, it takes precedence over
 the saved manual brightness level. Manual brightness remains the fallback
 until then, or when MQTT has not been configured.
@@ -124,3 +131,60 @@ bridge has an initial validated snapshot to serve.
 
 The wiring and controller profiles follow the maintained
 [ESP32 Cheap Yellow Display reference](https://github.com/witnessmenow/ESP32-Cheap-Yellow-Display).
+
+## 4-inch 480×480 comparison build
+
+The separate `square-4848s040` environment targets the Guition/Sunton
+ESP32-4848S040 family: ESP32-S3, 16 MB flash, 8 MB octal PSRAM, ST7701 RGB
+LCD and GT911 capacitive touch. It uses DIO flash boot with octal PSRAM;
+forcing QIO in the ROM image header caused a boot loop on the tested board.
+The original CYD remains the default build.
+This is the earlier Arduino prototype, retained for hardware comparison and
+rollback. The recommended 480×480 application is now the separate
+[LVGL touch dashboard](../square-dashboard/README.md). The prototype uses a
+6 MHz pixel clock and batched drawing; it can still tear during full redraws.
+The experimental custom double-buffer driver was removed after it made
+physical display stability worse.
+The [Espressif board reference](https://github.com/esp-arduino-libs/ESP32_Display_Panel/blob/master/docs/board/board_jingcai.md)
+and [Arduino_GFX v1.5.0 board example](https://github.com/moononournation/Arduino_GFX/blob/v1.5.0/examples/PDQgraphicstest/Arduino_GFX_dev_device.h)
+provide the hardware profile. A generic “ESP32-S3 480×480” listing alone does
+not guarantee compatibility with other board families.
+
+This version uses Arduino_GFX for the RGB display; it shares the existing
+snapshot, cache, setup portal, MQTT brightness, and navigation code rather
+than requiring a separate LVGL application. The overview shows up to two balances
+above seven quota rows, including separate capacity and reset-time bars. With
+zero or one balance it fits eight quotas; the single balance spans the width. Overflow
+readings use additional pages; tap to page, double tap for brightness, and
+hold to rotate as on the CYD. A single tap does nothing when all readings fit
+on one page, avoiding an unnecessary full-screen redraw. A larger number of balances or limits cycles
+those sections independently across the available overview pages.
+
+```sh
+pio run -e square-4848s040
+pio run -e square-4848s040 -t upload --upload-port /dev/ttyUSB0
+pio device monitor --port /dev/ttyUSB0
+```
+
+The dedicated hardware adapter uses these pins:
+
+- LCD control SPI: CS 39, SCK 48, MOSI 47
+- RGB: DE 18, VSYNC 17, HSYNC 16, PCLK 21
+- RGB red: 11, 12, 13, 14, 0; green: 8, 20, 3, 46, 9, 10;
+  blue: 4, 5, 6, 7, 15
+- GT911: SDA 19, SCL 45; probes addresses `0x5d` and `0x14`
+- Backlight: GPIO 38, active high
+
+For setup without the temporary Wi-Fi portal, copy
+`src/device_credentials.example.h` to the ignored `src/device_credentials.h`
+and supply the existing Wi-Fi settings, bridge snapshot URL, and display token.
+The first unconfigured boot saves these settings to device preferences and
+Wi-Fi storage. Remove the private header after provisioning; future builds use
+saved settings and the setup portal can change them. Firmware built with the
+header contains its credentials, so keep that personal binary private.
+
+Before the first test flash, a full factory-image backup was saved locally
+under the ignored `dist/device-backups/` directory at the repository root.
+To restore a backup, use esptool with the board connected and write the full
+backup at address `0x0`. This restores its previous flash contents, including
+any settings in that image.

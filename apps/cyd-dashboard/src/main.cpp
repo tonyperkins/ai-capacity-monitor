@@ -5,12 +5,16 @@
 #include <Preferences.h>
 #include <PubSubClient.h>
 #include <SPI.h>
+#if defined(CAPACITY_SQUARE_DISPLAY)
+#include "square_hardware.h"
+#else
 #include <TFT_eSPI.h>
+#include <XPT2046_Touchscreen.h>
+#endif
 #include <time.h>
 #include <WiFi.h>
 #include <WiFiClient.h>
 #include <WiFiManager.h>
-#include <XPT2046_Touchscreen.h>
 
 namespace {
 constexpr uint8_t kTouchIrq = 36;
@@ -33,6 +37,9 @@ constexpr uint16_t kOfficeMqttPort = 1883;
 constexpr const char* kOfficeBrightnessTopic = "perkinslab/cyd/tonys-office/brightness";
 #if __has_include("mqtt_credentials.h")
 #include "mqtt_credentials.h"
+#endif
+#if __has_include("device_credentials.h")
+#include "device_credentials.h"
 #endif
 #ifndef MQTT_USERNAME
 #define MQTT_USERNAME ""
@@ -74,9 +81,14 @@ struct DeviceSettings {
   bool mqttValid() const { return mqttHost.length() && mqttPort && mqttTopic.length() && mqttUsername.length() && mqttPassword.length(); }
 };
 
+#if defined(CAPACITY_SQUARE_DISPLAY)
+SquareDisplay display;
+SquareTouch touch;
+#else
 TFT_eSPI display;
 SPIClass touchSpi(VSPI);
 XPT2046_Touchscreen touch(kTouchChipSelect, kTouchIrq);
+#endif
 WiFiClient mqttSocket;
 PubSubClient mqtt(mqttSocket);
 Preferences preferences;
@@ -99,8 +111,18 @@ uint32_t lastMqttAttemptAt = 0;
 bool hasMqttBrightness = false;
 uint8_t mqttBrightness = 0;
 
+bool isSquare() {
+  return display.width() == 480 && display.height() == 480;
+}
+
 bool isPortrait() {
   return display.height() > display.width();
+}
+
+void presentDisplay() {
+#if defined(CAPACITY_SQUARE_DISPLAY)
+  display.flush();
+#endif
 }
 
 String shortened(String value, size_t maximum) {
@@ -206,15 +228,17 @@ JsonObjectConst metricAt(const char* kind, uint8_t wanted) {
 }
 
 uint8_t balancePageCount() {
-  return max<uint8_t>(1, (metricCount("credit") + 5) / 6);
+  const uint8_t perPage = isSquare() ? 2 : 6;
+  return max<uint8_t>(1, (metricCount("credit") + perPage - 1) / perPage);
 }
 
 uint8_t quotaPageCount() {
-  return max<uint8_t>(1, (metricCount("quota") + 5) / 6);
+  const uint8_t perPage = isSquare() ? (metricCount("credit") <= 1 ? 8 : 7) : 6;
+  return max<uint8_t>(1, (metricCount("quota") + perPage - 1) / perPage);
 }
 
 uint8_t totalPages() {
-  return balancePageCount() + quotaPageCount();
+  return isSquare() ? max(balancePageCount(), quotaPageCount()) : balancePageCount() + quotaPageCount();
 }
 
 time_t utcEpoch(int year, unsigned month, unsigned day, unsigned hour, unsigned minute, unsigned second) {
@@ -262,7 +286,7 @@ void drawHeader(const String& title) {
   display.setTextColor(kCyan, kBackground);
   display.drawString("CAPACITY", 9, 17, 2);
   display.setTextColor(kPrimary, kBackground);
-  display.drawString(title, 92, 17, 2);
+  display.drawString(title, isSquare() ? 136 : 92, 17, 2);
   display.fillCircle(width - 17, 17, 4, bridgeOnline ? kGreen : hasSnapshot ? kAmber : kRed);
 }
 
@@ -304,24 +328,30 @@ void drawPageIndicator() {
   }
 }
 
-void drawFooter() {
+void drawFooter(bool force = false) {
+  static String previousFooter;
+  const String age = freshnessText();
+  const uint8_t issues = issueCount();
+  const String footerKey = age + ":" + String(bridgeOnline) + ":" + String(hasSnapshot) + ":" + String(issues) + ":" + String(currentPage) + ":" + String(totalPages());
+  if (isSquare() && !force && footerKey == previousFooter) return;
+  previousFooter = footerKey;
   const int16_t width = display.width();
   const int16_t height = display.height();
   const int16_t top = height - 23;
   const int16_t middle = height - 11;
   display.fillRect(0, top, width, 23, kBackground);
   display.drawFastHLine(4, top, width - 8, kBorder);
-  const uint8_t issues = issueCount();
   const uint16_t statusColor = !bridgeOnline ? (hasSnapshot ? kAmber : kRed) : issues ? kAmber : kGreen;
   display.fillCircle(8, middle, 3, statusColor);
   display.setTextColor(kMuted, kBackground);
   display.setTextDatum(ML_DATUM);
-  display.drawString(freshnessText(), 15, middle, 1);
+  display.drawString(age, 15, middle, 1);
   drawPageIndicator();
   const String state = !bridgeOnline ? (hasSnapshot ? "CACHED" : "WAIT") : issues ? String(issues) + " WARN" : "LIVE";
   display.setTextDatum(MR_DATUM);
   display.setTextColor(statusColor, kBackground);
   display.drawString(state, width - 8, middle, 1);
+  presentDisplay();
 }
 
 void drawBalanceCard(JsonObjectConst metric, int16_t x, int16_t y, int16_t width, int16_t height) {
@@ -331,7 +361,9 @@ void drawBalanceCard(JsonObjectConst metric, int16_t x, int16_t y, int16_t width
   if (metricHasIssue(metric)) display.fillCircle(x + width - 9, y + 9, 3, stateColor(metric));
   display.setTextDatum(TL_DATUM);
   display.setTextColor(kMuted, kPanel);
-  display.drawString(shortened(String(metric["provider"] | metric["label"] | "Balance"), isPortrait() ? 32 : 22), x + 8, y + (isPortrait() ? 5 : 8), 1);
+  const String providerName = metric["provider"] | metric["label"] | "Balance";
+  if (isSquare()) display.drawString(fitText(providerName, width - 20, 2), x + 8, y + 8, 2);
+  else display.drawString(shortened(providerName, isPortrait() ? 32 : 22), x + 8, y + (isPortrait() ? 5 : 8), 1);
   display.setTextColor(kPrimary, kPanel);
   display.drawString(shortened(metricDisplay(metric), 12), x + 8, y + (isPortrait() ? 17 : 27), 4);
 }
@@ -350,10 +382,10 @@ void drawBalancePage(uint8_t page, uint8_t pageCount) {
   drawBalanceCard(metricAt("credit", offset + 5), 162, 145, 155, 68);
 }
 
-void drawQuotaRow(JsonObjectConst metric, int16_t y) {
+void drawQuotaRow(JsonObjectConst metric, int16_t y, int16_t rowHeight = 0) {
   if (metric.isNull()) return;
   const int16_t width = display.width() - 8;
-  const int16_t height = isPortrait() ? 45 : 33;
+  const int16_t height = rowHeight ? rowHeight : isPortrait() ? 45 : 33;
   display.fillRoundRect(4, y, width, height, 5, kPanel);
   display.drawRoundRect(4, y, width, height, 5, kBorder);
   if (metricHasIssue(metric)) display.fillRect(5, y + 6, 3, height - 12, stateColor(metric));
@@ -363,12 +395,13 @@ void drawQuotaRow(JsonObjectConst metric, int16_t y) {
   const int16_t valueWidth = display.textWidth(value, 2);
   const int16_t availableNameWidth = display.width() - 30 - valueWidth;
   const int16_t nameWidth = availableNameWidth > 48 ? availableNameWidth : 48;
-  const String name = fitText(fullName, nameWidth, 1);
+  const uint8_t nameFont = isSquare() ? 2 : 1;
+  const String name = fitText(fullName, nameWidth, nameFont);
   display.setTextDatum(TL_DATUM);
   display.setTextColor(kMuted, kPanel);
-  display.drawString(name, 11, y + 3, 1);
+  display.drawString(name, 11, y + 3, nameFont);
   const String reset = compactResetLabel(metric["resetText"] | "");
-  if (reset.length()) display.drawString(fitText(reset, display.width() - 22, 1), 11, y + 13, 1);
+  if (reset.length()) display.drawString(fitText(reset, display.width() - 22, 1), 11, y + (isSquare() ? 19 : 13), 1);
   display.setTextDatum(TR_DATUM);
   display.setTextColor(kCyan, kPanel);
   display.drawString(value, display.width() - 11, y + 2, 2);
@@ -378,13 +411,13 @@ void drawQuotaRow(JsonObjectConst metric, int16_t y) {
     const int16_t barWidth = display.width() - 22;
     // Keep the two indicators visually distinct: capacity above, reset time
     // below, with enough room for both to read on the portrait screen.
-    const int16_t barY = y + height - (showResetBar ? 18 : 6);
+    const int16_t barY = y + height - (showResetBar ? (isSquare() ? 12 : 18) : 6);
     display.fillRect(11, barY, barWidth, showResetBar ? 4 : 3, kTrack);
     if (percent > 0) display.fillRect(11, barY, barWidth * percent / 100, showResetBar ? 4 : 3, capacityColor(metric));
   }
   if (showResetBar) {
     const int16_t barWidth = display.width() - 22;
-    const int16_t barY = y + height - 9;
+    const int16_t barY = y + height - (isSquare() ? 6 : 9);
     display.fillRect(11, barY, barWidth, 4, kTimeTrack);
     if (resetPercent > 0) display.fillRect(11, barY, barWidth * resetPercent / 100, 4, kTime);
   }
@@ -405,15 +438,29 @@ void renderDashboard() {
     display.drawString("Waiting for a snapshot", display.width() / 2, display.height() / 2 - 20, 4);
     display.setTextColor(kMuted, kBackground);
     display.drawString("Run collection in the browser extension", display.width() / 2, display.height() / 2 + 15, 2);
-    drawFooter();
+    drawFooter(true);
     return;
   }
   const uint8_t balancePages = balancePageCount();
   const uint8_t quotaPages = quotaPageCount();
-  currentPage %= balancePages + quotaPages;
+  currentPage %= totalPages();
+  if (isSquare()) {
+    drawHeader("OVERVIEW");
+    const uint8_t balanceOffset = (currentPage % balancePages) * 2;
+    const bool singleBalance = metricCount("credit") == 1;
+    drawBalanceCard(metricAt("credit", balanceOffset), 4, 36, singleBalance ? 472 : 232, singleBalance ? 54 : 68);
+    if (!singleBalance) drawBalanceCard(metricAt("credit", balanceOffset + 1), 244, 36, 232, 68);
+    const uint8_t rows = metricCount("credit") <= 1 ? 8 : 7;
+    const int16_t top = !metricCount("credit") ? 38 : singleBalance ? 96 : 110;
+    const int16_t spacing = (display.height() - 23 - top) / rows;
+    const uint8_t quotaOffset = (currentPage % quotaPages) * rows;
+    for (uint8_t i = 0; i < rows; ++i) drawQuotaRow(metricAt("quota", quotaOffset + i), top + i * spacing, spacing - 3);
+    drawFooter(true);
+    return;
+  }
   if (currentPage < balancePages) drawBalancePage(currentPage, balancePages);
   else drawQuotaPage(currentPage - balancePages, quotaPages);
-  drawFooter();
+  drawFooter(true);
 }
 
 void drawSetupScreen(const String& detail) {
@@ -428,6 +475,7 @@ void drawSetupScreen(const String& detail) {
   display.setTextColor(kMuted, kBackground);
   display.drawString("Then open 192.168.4.1", center, isPortrait() ? 175 : 140, 2);
   display.drawString(detail, center, isPortrait() ? 210 : 174, 2);
+  presentDisplay();
 }
 
 void loadSettings() {
@@ -460,8 +508,26 @@ void saveSettings(const DeviceSettings& updated) {
   preferences.end();
 }
 
+void provisionDeviceIfNeeded() {
+#if defined(CAPACITY_WIFI_SSID) && defined(CAPACITY_WIFI_PASSWORD) && defined(CAPACITY_SNAPSHOT_URL) && defined(CAPACITY_DISPLAY_TOKEN)
+  if (settings.valid()) return;
+  settings.endpoint = CAPACITY_SNAPSHOT_URL;
+  settings.token = CAPACITY_DISPLAY_TOKEN;
+  saveSettings(settings);
+  WiFi.mode(WIFI_STA);
+  WiFi.persistent(true);
+  WiFi.begin(CAPACITY_WIFI_SSID, CAPACITY_WIFI_PASSWORD);
+  WiFi.persistent(false);
+  Serial.println("Initial device configuration saved");
+#endif
+}
+
 void applyBacklight(uint8_t value) {
+#if ESP_ARDUINO_VERSION_MAJOR >= 3
+  ledcWriteChannel(kBacklightChannel, value);
+#else
   ledcWrite(kBacklightChannel, value);
+#endif
 }
 
 void applyBacklight() {
@@ -482,6 +548,7 @@ void drawBrightnessOverlay() {
   display.drawString("Brightness " + String(kBrightnessPercents[settings.brightnessIndex]) + "%", width / 2, y + 14, 2);
   display.fillRect(x + 14, y + 33, boxWidth - 28, 4, kTrack);
   display.fillRect(x + 14, y + 33, (boxWidth - 28) * kBrightnessPercents[settings.brightnessIndex] / 100, 4, kCyan);
+  presentDisplay();
 }
 
 void rotateDisplay() {
@@ -691,8 +758,11 @@ void updateTouchNavigation() {
   }
   if (!down && tapPending && millis() - tapPendingAt > kDoubleTapWindowMs) {
     tapPending = false;
-    currentPage = (currentPage + 1) % totalPages();
-    renderDashboard();
+    const uint8_t pages = totalPages();
+    if (pages > 1) {
+      currentPage = (currentPage + 1) % pages;
+      renderDashboard();
+    }
   }
   touchWasDown = down;
 }
@@ -701,19 +771,32 @@ void updateTouchNavigation() {
 void setup() {
   Serial.begin(115200);
   delay(300);
+#if ESP_ARDUINO_VERSION_MAJOR >= 3
+  ledcAttachChannel(TFT_BL, 5000, 8, kBacklightChannel);
+  ledcWriteChannel(kBacklightChannel, kBrightnessLevels[0]);
+#else
   ledcSetup(kBacklightChannel, 5000, 8);
   ledcWrite(kBacklightChannel, kBrightnessLevels[0]);
+#endif
   display.init();
-#if !defined(CYD_ST7789)
+#if !defined(CYD_ST7789) && !defined(CAPACITY_SQUARE_DISPLAY)
   display.invertDisplay(true);
 #endif
   display.setRotation(1);
+#if defined(CAPACITY_SQUARE_DISPLAY)
+  touch.begin();
+  Serial.printf("Square dashboard: %dx%d, PSRAM %u bytes\n", display.width(), display.height(), ESP.getPsramSize());
+#else
   touchSpi.begin(kTouchClock, kTouchMiso, kTouchMosi, kTouchChipSelect);
   touch.begin(touchSpi);
+#endif
   touch.setRotation(1);
   loadSettings();
+  provisionDeviceIfNeeded();
   mqtt.setCallback(onMqttMessage);
+#if ESP_ARDUINO_VERSION_MAJOR < 3
   ledcAttachPin(TFT_BL, kBacklightChannel);
+#endif
   applyBacklight();
   display.setRotation(settings.rotation);
   touch.setRotation(settings.rotation);
