@@ -122,10 +122,10 @@ int main() {
     lv_text_get_size(&size,"23h 59m",&lv_font_montserrat_14,0,0,1000,LV_TEXT_FLAG_NONE);assert(size.x<=66);
     lv_text_get_size(&size,"100%",&lv_font_montserrat_32,0,0,1000,LV_TEXT_FLAG_NONE);assert(size.x<=98);
     lv_text_get_size(&size,"ChatGPT",&lv_font_montserrat_18,0,0,1000,LV_TEXT_FLAG_NONE);assert(size.x<=88); }
-  // The time bar fills toward the reset: Claude's session has 3 of 5 hours left, so 40% has elapsed.
+  // The time bar drains toward the reset: Claude's session has 3 of 5 hours left.
   { auto* claude=lv_obj_get_child(capacity_ui::body,0); std::vector<int> bars;
     for(uint32_t i=0;i<lv_obj_get_child_count(claude);++i) { auto* child=lv_obj_get_child(claude,i); if(lv_obj_check_type(child,&lv_bar_class)) bars.push_back(lv_bar_get_value(child)); }
-    assert(bars.size()==4 && bars[0]==36 && bars[1]==40 && bars[2]==84); }
+    assert(bars.size()==4 && bars[0]==36 && bars[1]==60 && bars[2]==84); }
   // Swipes scroll the pager, which wraps: Settings is to the left of Home.
   // A swipe never clicks what it starts on, and never lights it up.
   { const int before=refreshes;

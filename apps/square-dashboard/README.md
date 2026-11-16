@@ -13,10 +13,11 @@ bridge used before it.
   has two fixed columns: the short window (session, 5-hour or daily) and the
   long one (weekly). A cell shows percent remaining in large type, the window
   (`5h`, `day`, `7d`), the reset countdown, and a capacity bar with a thin
-  violet bar under it that fills as the window runs toward its reset: empty
-  just after a reset, full when the next one is due. The capacity bar shrinks
-  as quota is used while the time bar grows, so capacity that is still long
-  when the time bar is nearly full is about to expire unused. A provider with no short window (Grok) leaves that cell
+  violet bar under it for the time left in that window, on the same scale:
+  full just after a reset, empty when the next one is due. Capacity longer
+  than time means there is capacity to spare; shorter means it is being used
+  faster than the clock. The owner has gone back and forth on the direction;
+  `TIME_BAR_DRAINS` in `capacity_ui.h` flips every time bar at once. A provider with no short window (Grok) leaves that cell
   empty. Scoped limits, such as Claude's Fable cap or Antigravity's Argon
   group, appear as a small line under the provider name. Percentages turn
   amber at or under 25% and red at or under 10%; a prior value is grey and
@@ -24,7 +25,7 @@ bridge used before it.
   exact reset times.
 - **Limits:** every reading, with ordinary vertical scrolling. Each card
   shows the remaining percentage, capacity bar, reset countdown and a compact
-  violet bar that fills toward the reset. Credit balances, if a snapshot has any, follow the
+  violet bar for the time left. Credit balances, if a snapshot has any, follow the
   quotas; USD values are converted from the contract's integer cents.
 - **Settings:** brightness, a saved Rotate 90 deg clockwise control, Touch calibration, and Refresh now.
 - **Metric details:** tap a card for its source label, reading state, reading

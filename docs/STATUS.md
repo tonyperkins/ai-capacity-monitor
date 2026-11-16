@@ -68,8 +68,10 @@ vendor CLIs / Devin API  ->  apps/collector (systemd user service, port 8788)
    uvx --from esphome==2026.10.2 esphome upload apps/square-dashboard/capacity.yaml --device /dev/ttyUSB0
    ```
    `secrets.yaml` needs no change; the collector uses the bridge's port and token.
-2. Home shows time as a second bar that fills toward the reset (the owner's
-   choice over a tick, a surplus segment, pace colouring, and a time-left bar).
+2. Home shows time as a second bar that drains toward the reset. The owner
+   tried it filling toward the reset and switched back; `TIME_BAR_DRAINS` in
+   `capacity_ui.h` flips it. A tick, a surplus segment and pace colouring
+   were also tried and dropped.
 3. Tune swipe feel on the panel if needed. Page swipes are LVGL scrolling of
    `capacity_ui::pager`; pull-down thresholds are in `page_scrolled` and
    `gesture`.

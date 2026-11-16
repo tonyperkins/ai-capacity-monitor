@@ -34,6 +34,10 @@ inline lv_obj_t* pull_bar = nullptr;
 constexpr int PULL = 44;            // overscroll, in pixels, that arms a refresh
 constexpr int PAGE_SWIPE = 50;      // drag, in pixels, that turns the page
 constexpr uint32_t REFRESH_GAP_MS = 60000;
+// The violet time bars drain toward the reset (full just after one, empty
+// when the next is due). Set to false to make them fill toward it instead.
+constexpr bool TIME_BAR_DRAINS = true;
+inline int time_bar_value(int left) { return TIME_BAR_DRAINS ? left : 100-left; }
 inline std::string layout_key, detail_key, detail_provider;
 struct Row { std::string key; lv_obj_t *name, *value, *note, *reset, *bar, *time_bar; };
 inline std::vector<Row> rows;
@@ -115,7 +119,7 @@ inline void show_detail(const Metric& m) {
   const int time_left = capacity_model::reset_percent(m,now);
   const auto deadline=capacity_model::reset_deadline(m);
   label(modal,deadline.empty()?"Exact reset time not provided":deadline,16,319,448,&lv_font_montserrat_14,MUTED);
-  if (time_left >= 0) { label(modal,"Time elapsed in this window",16,349,448,&lv_font_montserrat_14,MUTED); bar(modal,16,373,448,8,100-time_left,VIOLET); }
+  if (time_left >= 0) { label(modal,TIME_BAR_DRAINS?"Time left in this window":"Time elapsed in this window",16,349,448,&lv_font_montserrat_14,MUTED); bar(modal,16,373,448,8,time_bar_value(time_left),VIOLET); }
   std::string age = m.collected && now > m.collected ? "Reading collected " + capacity_model::duration(now-m.collected) + " ago" : "Waiting for the clock to sync";
   label(modal,age,16,398,448,&lv_font_montserrat_14,MUTED);
   const Metric* parent = m.parent.empty() ? nullptr : find(m.parent);
@@ -340,7 +344,7 @@ inline void update_rows() {
     if(row.time_bar) {
       const int percent=capacity_model::reset_percent(*m,now);
       if(percent<0)lv_obj_add_flag(row.time_bar,LV_OBJ_FLAG_HIDDEN);
-      else {lv_obj_remove_flag(row.time_bar,LV_OBJ_FLAG_HIDDEN);lv_bar_set_value(row.time_bar,100-percent,LV_ANIM_OFF);}
+      else {lv_obj_remove_flag(row.time_bar,LV_OBJ_FLAG_HIDDEN);lv_bar_set_value(row.time_bar,time_bar_value(percent),LV_ANIM_OFF);}
     }
     if (row.bar) {
       lv_bar_set_value(row.bar,m->unlimited?100:int(m->value),LV_ANIM_OFF);
@@ -351,7 +355,7 @@ inline void update_rows() {
 // Home: one row per provider with two fixed columns, the short window
 // (session, 5-hour or daily) and the long one (weekly). Each cell shows percent
 // remaining, the window and its reset countdown, a capacity bar, and a thin
-// violet bar that fills as the window runs toward its reset. A provider with
+// violet bar for the time left in the window. A provider with
 // no short window leaves that cell empty.
 inline void plain(lv_obj_t* o) { lv_obj_set_style_border_width(o,0,0); lv_obj_remove_flag(o,LV_OBJ_FLAG_CLICKABLE); }
 inline void home_cell(lv_obj_t* card,int x,const Metric& m,time_t now) {
@@ -367,10 +371,10 @@ inline void home_cell(lv_obj_t* card,int x,const Metric& m,time_t now) {
     lv_obj_set_style_text_align(text,LV_TEXT_ALIGN_RIGHT,0);
   }
   bar(card,x,49,W,8,int(m.value),level(m));
-  // Under it, how far through the window we are: empty just after a reset,
-  // full when the next reset is due.
+  // Under it, the time left in the window on the same scale, so the two
+  // bars compare directly (see TIME_BAR_DRAINS).
   const int left=capacity_model::reset_percent(m,now);
-  if (left>=0 && !m.attention()) bar(card,x,61,W,4,100-left,VIOLET);
+  if (left>=0 && !m.attention()) bar(card,x,61,W,4,time_bar_value(left),VIOLET);
 }
 inline void render_home(const std::vector<capacity_model::Provider>& list, time_t now) {
   const int pitch=std::max(83,std::min(110,418/int(list.size())));
