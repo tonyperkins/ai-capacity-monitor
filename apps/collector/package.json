@@ -1,0 +1,10 @@
+{
+  "name": "ai-capacity-monitor-collector",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test",
+    "once": "node run.js --once",
+    "start": "node run.js"
+  }
+}

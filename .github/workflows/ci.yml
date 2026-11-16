@@ -54,6 +54,8 @@ jobs:
           node --check apps/local-bridge/run.js
           node --check apps/local-bridge/bridge.js
           node --check apps/local-bridge/snapshot.js
+          node --check apps/collector/run.js
+          node --check apps/collector/collect.js
       - name: Validate snapshot contract is well-formed JSON
         run: node -e "JSON.parse(require('fs').readFileSync('packages/contract/snapshot.v1.json','utf8')); console.log('snapshot.v1.json OK')"
       - name: Run extension test suite
@@ -62,6 +64,9 @@ jobs:
       - name: Run local bridge test suite
         run: node --test
         working-directory: apps/local-bridge
+      - name: Run collector test suite
+        run: node --test
+        working-directory: apps/collector
       - name: Run dashboard test suite
         run: |
           npm ci

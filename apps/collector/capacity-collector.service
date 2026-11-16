@@ -1,0 +1,15 @@
+[Unit]
+Description=AI Capacity Monitor collector (subscription quotas for the desk display)
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/node %h/projects/ai-capacity-monitor/apps/collector/run.js
+Environment=CAPACITY_COLLECTOR_CONFIG=%h/.config/ai-capacity-monitor/collector.json
+# The vendor CLIs are installed through mise.
+Environment=PATH=%h/.local/share/mise/command-wrappers/bin:%h/.local/share/mise/installs/antigravity-cli/latest:%h/.local/bin:/usr/local/bin:/usr/bin
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target
