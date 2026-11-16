@@ -53,7 +53,7 @@ vendor CLIs / Devin API  ->  apps/collector (systemd user service, port 8788)
 | Collector unit tests (`node --test` in `apps/collector`) | Pass |
 | Firmware UI headless test, with rendered previews reviewed | Pass |
 | Firmware compiled by ESPHome 2026.10.2 and flashed to the device | Done 2026-11-15 over `/dev/ttyUSB0`; the device log showed `Snapshot accepted: 13 metrics`. ESPHome is not installed; run it with `uvx --from esphome==2026.10.2 esphome ...`. The user is not in the `uucp` group, so the serial port needs `sudo setfacl -m u:$USER:rw /dev/ttyUSB0` after each replug. |
-| Home face on the physical panel | Not flashed yet. The device runs the Rings/Dispatch build from earlier on 2026-11-15. |
+| Home face on the physical panel | Flashed 2026-11-15 evening; the device log showed `Snapshot accepted: 11 metrics`. Legibility and touch on the panel are for the owner to judge. The log also warns that `fetch_snapshot` blocks for about 650 ms (fetch plus redraw); harmless so far, not investigated. |
 | `claude -p "/usage"` uses no quota | Believed, not measured |
 | `agy` keeps its Google login fresh when only the service runs it | Unknown; watch for a Gemini `not-signed-in` issue |
 | Devin API key lifetime | Unknown |
@@ -67,7 +67,7 @@ vendor CLIs / Devin API  ->  apps/collector (systemd user service, port 8788)
    uvx --from esphome==2026.10.2 esphome upload apps/square-dashboard/capacity.yaml --device /dev/ttyUSB0
    ```
    `secrets.yaml` needs no change; the collector uses the bridge's port and token.
-2. Flash the Home face and check it on the panel.
+2. Live with the Home face and adjust sizes or colours as needed.
 3. Optional faces, designed but not built: **Pace** (where each week lands
    at the current rate) and **Refill timeline**. The Home face already
    carries the pace idea as the tick on each bar. Mockups:
