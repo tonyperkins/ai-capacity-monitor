@@ -207,9 +207,57 @@ inline void show_view(int next) {
   view = std::max(int(HOME),std::min(int(SETTINGS),next));
   place_pages(); render();
 }
+// Auto brightness follows the office light level (lux, from the presence
+// sensor via Home Assistant). Dragging the slider switches to manual.
+inline bool auto_brightness = true;
+inline float ambient_lux = NAN;
+inline lv_obj_t *brightness_slider = nullptr, *auto_button = nullptr;
+inline std::function<void(bool)> auto_brightness_save;
+constexpr float DIM_LUX = 5, BRIGHT_LUX = 300;  // at or below: 15%; at or above: 100%
+constexpr int MIN_AUTO = 15, AUTO_STEP = 4;      // ignore changes smaller than AUTO_STEP
+// Eyes judge light on a log scale, so interpolate on log(lux).
+inline int brightness_for_lux(float lux) {
+  if (!std::isfinite(lux) || lux <= DIM_LUX) return MIN_AUTO;
+  if (lux >= BRIGHT_LUX) return 100;
+  return int(std::lround(MIN_AUTO + (100 - MIN_AUTO) * std::log10(lux / DIM_LUX) / std::log10(BRIGHT_LUX / DIM_LUX)));
+}
+inline void show_brightness() {
+  if (brightness_label) set_text(brightness_label,std::to_string(brightness)+"%");
+  if (brightness_slider) lv_slider_set_value(brightness_slider,brightness,LV_ANIM_OFF);
+  if (auto_button) {
+    lv_obj_set_style_bg_color(auto_button,color(auto_brightness?CYAN:BORDER),0);
+    lv_obj_set_style_text_color(lv_obj_get_child(auto_button,0),color(auto_brightness?0x070b12:TEXT),0);
+  }
+}
+inline void set_auto_brightness(bool on, bool save) {
+  auto_brightness = on;
+  if (on && std::isfinite(ambient_lux)) {
+    brightness = brightness_for_lux(ambient_lux);
+    if (brightness_action) brightness_action(brightness/100.0f);
+  }
+  show_brightness();
+  if (save && auto_brightness_save) auto_brightness_save(on);
+}
+inline void configure_auto_brightness(bool saved, std::function<void(bool)> save) {
+  auto_brightness_save = std::move(save); set_auto_brightness(saved,false);
+}
+// New light reading. Returns the brightness to fade to, or -1 for no change.
+// The caller applies it, and leaves a dark screen dark.
+inline int ambient_changed(float lux) {
+  if (!std::isfinite(lux)) return -1;
+  ambient_lux = lux;
+  if (!auto_brightness) return -1;
+  const int level = brightness_for_lux(lux);
+  if (std::abs(level - brightness) < AUTO_STEP && level != MIN_AUTO && level != 100) return -1;
+  if (level == brightness) return -1;
+  brightness = level; show_brightness();
+  return level;
+}
+inline void auto_clicked(lv_event_t*) { set_auto_brightness(!auto_brightness,true); }
 inline void slider_changed(lv_event_t* e) {
   brightness = lv_slider_get_value(static_cast<lv_obj_t*>(lv_event_get_target(e)));
-  if (brightness_label) set_text(brightness_label,std::to_string(brightness)+"%");
+  if (auto_brightness) { auto_brightness = false; if (auto_brightness_save) auto_brightness_save(false); }
+  show_brightness();
   if (brightness_action) brightness_action(brightness/100.0f);
 }
 inline void apply_rotation(int angle,bool save) {
@@ -309,12 +357,14 @@ inline void render_settings() {
   label(body,"Display settings",0,4,448,&lv_font_montserrat_24);
   label(body,"Brightness",0,62,300,&lv_font_montserrat_20);
   brightness_label = label(body,std::to_string(brightness)+"%",342,62,102,&lv_font_montserrat_20,CYAN);
-  auto* slider = lv_slider_create(body); lv_obj_set_pos(slider,12,119); lv_obj_set_size(slider,416,18);
+  auto_button = button(body,"Auto",196,54,110,40,auto_clicked);
+  auto* slider = brightness_slider = lv_slider_create(body); lv_obj_set_pos(slider,12,119); lv_obj_set_size(slider,416,18);
   lv_slider_set_range(slider,10,100); lv_slider_set_value(slider,brightness,LV_ANIM_OFF);
   lv_obj_set_style_bg_color(slider,color(CYAN),LV_PART_INDICATOR); lv_obj_set_style_bg_color(slider,color(CYAN),LV_PART_KNOB);
   lv_obj_add_event_cb(slider,slider_changed,LV_EVENT_VALUE_CHANGED,nullptr);
   // Dragging the slider sideways must not turn the page.
   lv_obj_remove_flag(slider,LV_OBJ_FLAG_GESTURE_BUBBLE); lv_obj_remove_flag(slider,LV_OBJ_FLAG_SCROLL_CHAIN);
+  show_brightness();
   label(body,"Orientation",0,158,300,&lv_font_montserrat_20);
   rotation_label=label(body,std::to_string(rotation_degrees)+" deg",328,158,116,&lv_font_montserrat_20,CYAN);
   button(body,"Rotate 90 deg clockwise",0,192,448,48,rotate_clicked);
@@ -497,7 +547,7 @@ inline bool accept_snapshot(JsonObject root) {
 inline void set_brightness_level(float value) {
   if (!std::isfinite(value)) return;
   brightness=std::max(10,std::min(100,int(std::lround(value*100))));
-  if (brightness_label) set_text(brightness_label,std::to_string(brightness)+"%");
+  show_brightness();
 }
 // A page swipe is a scroll of the pager, which LVGL animates. When it comes
 // to rest on a neighbour, that page becomes the current one.

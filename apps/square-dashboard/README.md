@@ -114,8 +114,45 @@ esphome logs apps/square-dashboard/capacity.yaml --device /dev/ttyUSB0
 ```
 
 `secrets.yaml` and `.esphome/` build products are ignored. Personal firmware
-contains these device credentials; keep that binary private. This standalone
-configuration enables neither a Home Assistant API nor unauthenticated OTA.
+contains these device credentials; keep that binary private. There is no OTA;
+flash over USB.
+
+### Screen off when the office is empty
+
+The firmware enables the encrypted Home Assistant API (`api_encryption_key` in
+`secrets.yaml`) for one purpose: it follows
+`binary_sensor.everything_presence_one_278be8_occupancy` ("Tony's Office
+Presence Occupancy", an Everything Presence One). When that sensor turns off,
+the backlight fades out and LVGL pauses. When it turns on, the screen comes back
+at the brightness last set in Settings. Snapshot polling continues while the
+screen is dark.
+
+- A tap on the dark screen wakes it. The tap does nothing else, because LVGL is
+  paused. The screen stays on until the sensor next reports empty.
+- If Home Assistant disconnects, the screen turns on and stays on. Without Home
+  Assistant the display behaves as before.
+- How long the room must be empty before the screen turns off is the sensor's
+  `number.everything_presence_one_278be8_occupancy_off_latency` (15 s when last
+  checked), set in Home Assistant.
+- Home Assistant must have the device added: Settings > Devices & services >
+  ESPHome, "Capacity Square", with the key from `secrets.yaml`. Until it is
+  added, nothing subscribes and the screen stays on. The device also exposes
+  its Backlight light to Home Assistant.
+- To change the sensor, edit `entity_id` under `binary_sensor` in
+  `capacity.yaml`.
+
+### Auto brightness
+
+**Settings > Auto** (on by default, remembered across restarts) sets the
+brightness from the same sensor's light level,
+`sensor.everything_presence_one_278be8_illuminance`. The mapping is
+logarithmic: 5 lux or less gives 15%, 300 lux or more gives 100%, and about
+70 lux gives roughly 67%. Changes fade over 2 s, and changes under 4% are
+ignored so the screen doesn't flicker. Dragging the slider switches Auto off;
+tap Auto to turn it back on. While the screen is off, readings update the
+level without waking it. The curve constants (`DIM_LUX`, `BRIGHT_LUX`,
+`MIN_AUTO`, `AUTO_STEP`) are in `capacity_ui.h`. This also needs the device
+added to Home Assistant; without readings the brightness stays where it was.
 Backlight settings use ESPHome's preferences, with writes coalesced over five
 minutes. Touch calibration is explicitly synchronized to storage after Done; rotation
 changes are also saved promptly rather than waiting for the backlight interval. Returning to the original Arduino prototype requires restoring its

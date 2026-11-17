@@ -30,6 +30,10 @@ esphome:
               call.perform();
             });
           capacity_ui::set_brightness_level(id(backlight).current_values.get_brightness());
+          capacity_ui::configure_auto_brightness(id(auto_brightness), [](bool on) {
+            id(auto_brightness) = on;
+            ESP_LOGI("capacity", "Auto brightness %s", on ? "on" : "off");
+          });
           capacity_ui::configure_rotation(id(display_rotation),[](int degrees,bool save) {
             id(display_ui).set_rotation(degrees);
             ESP_LOGI("capacity", "Orientation: %d degrees",degrees);
@@ -78,7 +82,57 @@ wifi:
     then:
       - lambda: capacity_ui::connection_failed();
 
+# Home Assistant native API, used only to follow the office presence sensor
+# (and it exposes the Backlight light). Add the device in Home Assistant under
+# Settings > Devices & services > ESPHome with api_encryption_key from
+# secrets.yaml. Without Home Assistant the display simply stays on.
+api:
+  encryption:
+    key: !secret api_encryption_key
+  reboot_timeout: 0s
+  on_client_disconnected:
+    then:
+      - script.execute: screen_wake
+
+binary_sensor:
+  - platform: homeassistant
+    id: office_occupied
+    name: Office occupied
+    entity_id: binary_sensor.everything_presence_one_278be8_occupancy
+    internal: true
+    on_state:
+      then:
+        - if:
+            condition:
+              lambda: return x;
+            then:
+              - script.execute: screen_wake
+            else:
+              - script.execute: screen_sleep
+
+# The same sensor's light level drives auto brightness (Settings > Auto).
+sensor:
+  - platform: homeassistant
+    id: office_lux
+    name: Office illuminance
+    entity_id: sensor.everything_presence_one_278be8_illuminance
+    internal: true
+    on_value:
+      then:
+        - lambda: |-
+            const int level = capacity_ui::ambient_changed(x);
+            // A dark screen stays dark; screen_wake uses the new level.
+            if (level < 0 || id(display_ui).is_paused() || !id(backlight).current_values.is_on()) return;
+            auto call = id(backlight).turn_on();
+            call.set_brightness(level / 100.0f);
+            call.set_transition_length(2000);
+            call.perform();
+
 globals:
+  - id: auto_brightness
+    type: bool
+    restore_value: true
+    initial_value: 'true'
   - id: display_rotation
     type: int
     restore_value: true
@@ -126,6 +180,11 @@ touchscreen:
           if (!touches.empty()) capacity_ui::calibration_update(touches.front().x_raw,touches.front().y_raw);
     on_release:
       - lambda: capacity_ui::calibration_release();
+      # A tap on a dark screen wakes it; LVGL is paused, so the tap does nothing else.
+      - if:
+          condition: lvgl.is_paused
+          then:
+            - script.execute: screen_wake
 
 output:
   - platform: ledc
@@ -170,6 +229,32 @@ http_request:
   verify_ssl: true
 
 script:
+  # Office empty: fade the backlight out and stop rendering. Polling continues,
+  # so the data is current on wake.
+  - id: screen_sleep
+    mode: restart
+    then:
+      - light.turn_off:
+          id: backlight
+          transition_length: 1s
+      - delay: 1s
+      - lvgl.pause:
+      - logger.log: "Office empty: screen off"
+  # Someone is in the office (or tapped, or Home Assistant went away): light up
+  # at the brightness last set on the Settings page.
+  - id: screen_wake
+    mode: restart
+    then:
+      - if:
+          condition: lvgl.is_paused
+          then:
+            - lvgl.resume:
+            - lvgl.widget.redraw:
+            - logger.log: "Screen on"
+      - light.turn_on:
+          id: backlight
+          brightness: !lambda return capacity_ui::brightness / 100.0f;
+          transition_length: 300ms
   - id: persist_rotation
     then:
       - delay: 250ms

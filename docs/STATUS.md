@@ -1,6 +1,6 @@
 # Where this project stands
 
-Last updated 2026-11-15. Read this first when coming back to the project.
+Last updated 2026-11-16. Read this first when coming back to the project.
 
 ## What the project is for
 
@@ -22,7 +22,8 @@ vendor CLIs / Devin API  ->  apps/collector (systemd user service, port 8788)
   Pages, by swipe (they follow the finger and wrap around): Home (one row per
   provider), Limits, Settings. Pull down to make the collector read now.
 - **Snapshot file**: other local tools (for example coding agents deciding
-  which subscription to use) read `latest-snapshot.json`.
+  which subscription to use) read `latest-snapshot.json`; see
+  [for-agents.md](for-agents.md).
 
 ## What changed on 2026-11-15 (branch `local-collector`)
 
@@ -55,7 +56,9 @@ vendor CLIs / Devin API  ->  apps/collector (systemd user service, port 8788)
 | Firmware UI headless test, with rendered previews reviewed | Pass |
 | Firmware compiled by ESPHome 2026.10.2 and flashed to the device | Done 2026-11-15 over `/dev/ttyUSB0`; the device log showed `Snapshot accepted: 13 metrics`. ESPHome is not installed; run it with `uvx --from esphome==2026.10.2 esphome ...`. The user is not in the `uucp` group, so the serial port needs `sudo setfacl -m u:$USER:rw /dev/ttyUSB0` after each replug. |
 | Home face on the physical panel | Flashed 2026-11-15 evening; the device log showed `Snapshot accepted: 11 metrics`. Legibility and touch on the panel are for the owner to judge. The log also warns that `fetch_snapshot` blocks for about 650 ms (fetch plus redraw); harmless so far, not investigated. |
-| `claude -p "/usage"` uses no quota | Believed, not measured |
+| `claude -p "/usage"` uses no quota | Measured 2026-11-16: 0 turns, 0 tokens, $0, no model |
+| Screen turns off when the office presence sensor says empty | Flashed 2026-11-16; works only once the device is added to Home Assistant (ESPHome integration, key in `secrets.yaml`). See the dashboard README, "Screen off when the office is empty". On/off on the panel not yet observed |
+| Auto brightness from the same sensor's lux (Settings > Auto) | Flashed 2026-11-16; headless test passes; needs Home Assistant like the item above; not yet observed on the panel |
 | `agy` keeps its Google login fresh when only the service runs it | Unknown; watch for a Gemini `not-signed-in` issue |
 | Devin API key lifetime | Unknown |
 | Devin numbers match Devin's own usage screen | Not compared |

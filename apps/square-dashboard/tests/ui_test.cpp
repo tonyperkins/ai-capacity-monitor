@@ -217,6 +217,24 @@ int main() {
     if(lv_obj_check_type(child,&lv_slider_class)) {lv_slider_set_value(child,75,LV_ANIM_OFF);lv_obj_send_event(child,LV_EVENT_VALUE_CHANGED,nullptr);}
   }
   assert(brightness==.75f);
+  // Auto brightness: the slider above switched it off; light readings are kept but ignored.
+  { bool saved=true; capacity_ui::configure_auto_brightness(false,[&](bool on){saved=on;});
+    assert(capacity_ui::brightness_for_lux(1)==15 && capacity_ui::brightness_for_lux(5)==15);
+    assert(capacity_ui::brightness_for_lux(300)==100 && capacity_ui::brightness_for_lux(5000)==100);
+    { const int mid=capacity_ui::brightness_for_lux(68); assert(mid>60 && mid<75); }
+    assert(capacity_ui::ambient_changed(10)==-1 && capacity_ui::brightness==75);
+    lv_obj_send_event(capacity_ui::auto_button,LV_EVENT_CLICKED,nullptr);   // Auto on: apply 10 lux now
+    assert(saved && capacity_ui::auto_brightness && capacity_ui::brightness==capacity_ui::brightness_for_lux(10));
+    assert(brightness==capacity_ui::brightness/100.0f);
+    assert(lv_slider_get_value(capacity_ui::brightness_slider)==capacity_ui::brightness);
+    shot(display,"settings-auto");
+    assert(capacity_ui::ambient_changed(11)==-1);                            // too small a change
+    assert(capacity_ui::ambient_changed(300)==100 && capacity_ui::brightness==100);
+    assert(capacity_ui::ambient_changed(NAN)==-1);
+    lv_slider_set_value(capacity_ui::brightness_slider,40,LV_ANIM_OFF);
+    lv_obj_send_event(capacity_ui::brightness_slider,LV_EVENT_VALUE_CHANGED,nullptr);
+    assert(!saved && !capacity_ui::auto_brightness && capacity_ui::brightness==40);
+    assert(capacity_ui::ambient_changed(5)==-1 && capacity_ui::brightness==40); }
   int orientation=-1,rotation_saves=0;
   capacity_ui::configure_rotation(0,[&](int degrees,bool save){orientation=degrees;if(save)++rotation_saves;});
   lv_obj_t* rotate_button=nullptr;

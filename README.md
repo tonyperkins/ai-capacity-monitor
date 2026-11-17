@@ -4,7 +4,8 @@
 > [collector](apps/collector/README.md) that reads subscription quota through
 > each vendor's own CLI. The Chrome extension and local bridge described below
 > are no longer used for it and are kept only until the collector has proven
-> itself. Start with [docs/STATUS.md](docs/STATUS.md).
+> itself. Start with [docs/STATUS.md](docs/STATUS.md). Agents and scripts that
+> need current quota: see [docs/for-agents.md](docs/for-agents.md).
 
 The rest of this page describes the original extension.
 
